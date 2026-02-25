@@ -2,19 +2,35 @@
 #
 # Sync MVMF vendor libraries from SceneAssembler and apply globalThis bridge lines.
 #
-# Usage: ./scripts/sync-vendor.sh [path-to-SceneAssembler]
-#        Default source: ../../../RP1/SceneAssembler
+# Usage: ./scripts/sync-vendor.sh [path-or-git-url]
+#        Default: https://github.com/MetaversalCorp/SceneAssembler.git
+#
+# Accepts a local path or a git URL. Git URLs are shallow-cloned to a temp
+# directory and cleaned up automatically.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-SRC="${1:-$PROJECT_DIR/../../../RP1/SceneAssembler}"
-SRC_MV="$SRC/site/js/vendor/mv"
 DST_MV="$PROJECT_DIR/vendor/mv"
+DEFAULT_REPO="https://github.com/MetaversalCorp/SceneAssembler.git"
+SRC="${1:-$DEFAULT_REPO}"
+CLEANUP=""
+
+if [[ "$SRC" == *.git ]] || [[ "$SRC" == https://* ]] || [[ "$SRC" == git@* ]]; then
+  TMPDIR="$(mktemp -d)"
+  CLEANUP="$TMPDIR"
+  echo "Cloning $SRC ..."
+  git clone --depth 1 --filter=blob:none --sparse "$SRC" "$TMPDIR/SceneAssembler" 2>&1
+  (cd "$TMPDIR/SceneAssembler" && git sparse-checkout set site/js/vendor/mv 2>&1)
+  SRC="$TMPDIR/SceneAssembler"
+fi
+
+SRC_MV="$SRC/site/js/vendor/mv"
 
 if [ ! -d "$SRC_MV" ]; then
   echo "Error: Source directory not found: $SRC_MV"
+  [ -n "$CLEANUP" ] && rm -rf "$CLEANUP"
   exit 1
 fi
 
@@ -49,6 +65,8 @@ for dst_file in "$DST_MV"/MV*.js; do
     echo "  $name $ver"
   fi
 done
+
+[ -n "$CLEANUP" ] && rm -rf "$CLEANUP"
 
 echo ""
 echo "Done. Review changes with: git diff vendor/mv/"
