@@ -1,26 +1,41 @@
 // Node.js loader for MVMF vendor libraries.
-// Loads browser API shims, sets up socket.io-client with per-host SSL bypass,
+// Loads browser API shims, sets up socket.io-client,
 // redirects console.log to stderr, and imports vendor libs in dependency order.
 
 import './node-shim.js';
 
 import { io as _io } from 'socket.io-client';
 
-// Wrap io() to inject rejectUnauthorized:false for hosts registered as unsafe.
-// Hosts are registered by callers (e.g. ManifolderMCP) via globalThis.__manifolderUnsafeHosts.
+// Per-host SSL bypass set — initialized here, populated by callers (e.g. ManifolderMCP)
+// before connecting. MVIO uses socket.io-client (via globalThis.io) with websocket
+// transport, so rejectUnauthorized must be injected into the io() options.
 globalThis.__manifolderUnsafeHosts = globalThis.__manifolderUnsafeHosts || new Set();
 
 globalThis.io = function io(url, opts) {
   opts = opts || {};
-  try {
-    const host = new URL(url).host;
-    if (globalThis.__manifolderUnsafeHosts.has(host)) {
-      opts.rejectUnauthorized = false;
-    }
-  } catch (_) {
-    // Non-URL argument — pass through unchanged
+  const unsafeHosts = globalThis.__manifolderUnsafeHosts;
+  if (unsafeHosts?.size) {
+    try {
+      const host = new URL(url).host;
+      if (unsafeHosts.has(host)) {
+        opts.rejectUnauthorized = false;
+      }
+    } catch (_) {}
   }
-  return _io(url, opts);
+  const socket = _io(url, opts);
+  socket.on('connect_error', (err) => {
+    // socket.io wraps transport errors: SSL info is in err.description.message
+    const desc = err?.description?.message || '';
+    if (desc.includes('certificate') || desc.includes('UNABLE_TO_VERIFY')) {
+      let host = '';
+      try { host = new URL(url).host; } catch (_) { host = url; }
+      globalThis.__manifolderSSLErrors = globalThis.__manifolderSSLErrors || [];
+      if (!globalThis.__manifolderSSLErrors.includes(host)) {
+        globalThis.__manifolderSSLErrors.push(host);
+      }
+    }
+  });
+  return socket;
 };
 
 // Redirect console.log to stderr (MVMF libraries use console.log which would corrupt MCP stdout)
