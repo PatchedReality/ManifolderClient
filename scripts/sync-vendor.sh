@@ -31,11 +31,8 @@ for src_file in "$SRC_MV"/MV*.js; do
   cp "$src_file" "$dst_file"
 
   if [ "$file" = "MVMF.js" ]; then
-    # MVMF defines MV — export it to globalThis for other modules
+    # MVMF defines MV — export it to globalThis so it's accessible across ES module boundaries
     printf '\nglobalThis.MV = MV;\n' >> "$dst_file"
-  else
-    # All other files need to import MV from globalThis
-    sed -i '' '1s/^/const MV = globalThis.MV;\n/' "$dst_file"
   fi
 
   echo "  OK    $file"

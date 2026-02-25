@@ -1,4 +1,3 @@
-const MV = globalThis.MV;
 
 /*
 import { MV   } from '@metaversalcorp/mvmf';
