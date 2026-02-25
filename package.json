@@ -1,0 +1,24 @@
+{
+  "name": "manifolder-client",
+  "version": "0.1.0",
+  "description": "Shared ManifolderClient for browser and Node.js runtimes",
+  "type": "module",
+  "main": "ManifolderClient.js",
+  "types": "ManifolderClient.d.ts",
+  "scripts": {
+    "test": "node --test ManifolderClient.test.js",
+    "build:types": "tsc types.ts --declaration --target ES2022 --module NodeNext --moduleResolution NodeNext"
+  },
+  "peerDependencies": {
+    "socket.io-client": "^4.7.0",
+    "ws": "^8.19.0"
+  },
+  "peerDependenciesMeta": {
+    "socket.io-client": {
+      "optional": true
+    },
+    "ws": {
+      "optional": true
+    }
+  }
+}
