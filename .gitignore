@@ -1,4 +1,5 @@
 node_modules/
+package-lock.json
 types.js
 types.d.ts
 *.js.map
