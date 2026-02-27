@@ -14,8 +14,8 @@ ManifolderClient is an open source project created and maintained by
 
 ## Related Projects
 
-- **[Manifolder](/PatchedReality/Manifolder)** — Web-based explorer for visualizing Open Metaverse fabrics
-- **[ManifolderMCP](/PatchedReality/ManifolderMCP)** — MCP server that exposes ManifolderClient functionality to AI agents
+- **[Manifolder](https://github.com/PatchedReality/Manifolder)** — Web-based explorer for visualizing Open Metaverse fabrics
+- **[ManifolderMCP](https://github.com/PatchedReality/ManifolderMCP)** — MCP server that exposes ManifolderClient functionality to AI agents
 
 ## Adding to a project
 
