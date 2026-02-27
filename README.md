@@ -1,6 +1,21 @@
 # ManifolderClient
 
-Shared client library for connecting to MVMF Fabric servers. Works in both browser (`<script>` tags) and Node.js (ES modules) runtimes.
+ManifolderClient is a JavaScript library for connecting to MVMF-based
+[Open Metaverse](https://omb.wiki/)
+[Spatial Fabric](https://omb.wiki/en/spatial-fabric/architecture) servers.
+It provides a shared client implementation used by both browser applications
+and Node.js tools.
+
+The library works in both browser environments (via `<script>` tags)
+and Node.js runtimes (ES modules).
+
+ManifolderClient is an open source project created and maintained by
+[Patched Reality, Inc.](https://patchedreality.com).
+
+## Related Projects
+
+- **[Manifolder](/PatchedReality/Manifolder)** — Web-based explorer for visualizing Open Metaverse fabrics
+- **[ManifolderMCP](/PatchedReality/ManifolderMCP)** — MCP server that exposes ManifolderClient functionality to AI agents
 
 ## Adding to a project
 
@@ -93,3 +108,20 @@ node/
 scripts/
   sync-vendor.sh             # Sync vendor libs from SceneAssembler
 ```
+
+## License
+
+Licensed under the Apache License, Version 2.0.
+See the [LICENSE](LICENSE) file for details.
+
+## Attribution
+
+This project uses the MVMF libraries developed by
+[Metaversal Corporation](https://rp1.com/).
+
+See the [NOTICE](NOTICE) file for full attribution details.
+
+## Contributing
+
+Contributions are welcome. By submitting a pull request, you agree that your
+contribution will be licensed under the Apache License, Version 2.0.
