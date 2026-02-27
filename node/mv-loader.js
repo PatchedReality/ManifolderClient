@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Patched Reality, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Node.js loader for MVMF vendor libraries.
 // Loads browser API shims, sets up socket.io-client,
 // redirects console.log to stderr, and imports vendor libs in dependency order.

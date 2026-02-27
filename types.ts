@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Patched Reality, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // MVMF Class IDs
 export const ClassIds = {
   RMRoot: 70,

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Patched Reality, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ObjectTypeMap = exports.ClassIdToPrefix = exports.ClassPrefixes = exports.ClassIds = void 0;

@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Patched Reality, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 export declare const ClassIds: {
     readonly RMRoot: 70;
     readonly RMCObject: 71;

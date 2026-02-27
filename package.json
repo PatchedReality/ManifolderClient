@@ -9,6 +9,7 @@
     "test": "node --test ManifolderClient.test.js",
     "build:types": "tsc types.ts --declaration --target ES2022 --module NodeNext --moduleResolution NodeNext"
   },
+  "license": "Apache-2.0",
   "peerDependencies": {
     "socket.io-client": "^4.7.0",
     "ws": "^8.19.0"

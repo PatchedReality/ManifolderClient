@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Patched Reality, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Unified Manifolder client for both browser and Node runtimes.
 // Assumes globalThis.MV is initialized by host project bootstrap code.
 import { getMsfReference } from './node-helpers.js';

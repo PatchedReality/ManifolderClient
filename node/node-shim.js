@@ -1,3 +1,8 @@
+/*
+ * Copyright 2026 Patched Reality, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 // Node.js shim for browser APIs used by MVMF libraries
 import WebSocket from 'ws';
 

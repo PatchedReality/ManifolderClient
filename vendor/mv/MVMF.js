@@ -1,4 +1,7 @@
-
+/*
+ * Modified by Patched Reality, Inc.
+ * Change: Exported MV to globalThis for access by the Node.js module loader
+ */
 const MV = new class
 {
    constructor ()
