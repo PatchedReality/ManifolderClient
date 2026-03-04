@@ -386,7 +386,7 @@ test('followAttachment cycle preserves details.existingNodeUid/details.existingL
     twParentIx: 1,
     wClass_Parent: TEST_CLASS_IDS.RMRoot,
     pName: { wsRMPObjectId: 'Attachment Node' },
-    pType: { bType: 0 },
+    pType: { bType: 0, bSubtype: 255 },
     pTransform: {
       vPosition: { dX: 0, dY: 0, dZ: 0 },
       qRotation: { dX: 0, dY: 0, dZ: 0, dW: 1 },
@@ -1407,7 +1407,7 @@ test('createObject attaches cached parent model before sending action', async ()
   const created = await client.createObject({
     parentId: 'physical:10',
     name: 'Attached Parent Create',
-    objectType: 'physical',
+    objectType: 'physical:default',
   });
 
   assert.equal(created.id, 'physical:333');

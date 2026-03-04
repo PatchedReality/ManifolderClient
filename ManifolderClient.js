@@ -79,36 +79,36 @@ function formatObjectRef(classId, numericId) {
     return `${prefix}:${numericId}`;
 }
 const ObjectTypeMap = {
-    'celestial:universe': { classId: 71, subtype: 1 },
-    'celestial:supercluster': { classId: 71, subtype: 2 },
-    'celestial:galaxy_cluster': { classId: 71, subtype: 3 },
-    'celestial:galaxy': { classId: 71, subtype: 4 },
-    'celestial:black_hole': { classId: 71, subtype: 5 },
-    'celestial:nebula': { classId: 71, subtype: 6 },
-    'celestial:star_cluster': { classId: 71, subtype: 7 },
-    'celestial:constellation': { classId: 71, subtype: 8 },
-    'celestial:star_system': { classId: 71, subtype: 9 },
-    'celestial:star': { classId: 71, subtype: 10 },
-    'celestial:planet_system': { classId: 71, subtype: 11 },
-    'celestial:planet': { classId: 71, subtype: 12 },
-    'celestial:moon': { classId: 71, subtype: 13 },
-    'celestial:debris': { classId: 71, subtype: 14 },
-    'celestial:satellite': { classId: 71, subtype: 15 },
-    'celestial:transport': { classId: 71, subtype: 16 },
-    'celestial:surface': { classId: 71, subtype: 17 },
-    'terrestrial:root': { classId: 72, subtype: 1 },
-    'terrestrial:water': { classId: 72, subtype: 2 },
-    'terrestrial:land': { classId: 72, subtype: 3 },
-    'terrestrial:country': { classId: 72, subtype: 4 },
-    'terrestrial:territory': { classId: 72, subtype: 5 },
-    'terrestrial:state': { classId: 72, subtype: 6 },
-    'terrestrial:county': { classId: 72, subtype: 7 },
-    'terrestrial:city': { classId: 72, subtype: 8 },
-    'terrestrial:community': { classId: 72, subtype: 9 },
-    'terrestrial:sector': { classId: 72, subtype: 10 },
-    'terrestrial:parcel': { classId: 72, subtype: 11 },
-    physical: { classId: 73, subtype: 0 },
-    'physical:transport': { classId: 73, subtype: 1 },
+    'celestial:universe': { classId: 71, type: 1 },
+    'celestial:supercluster': { classId: 71, type: 2 },
+    'celestial:galaxy_cluster': { classId: 71, type: 3 },
+    'celestial:galaxy': { classId: 71, type: 4 },
+    'celestial:black_hole': { classId: 71, type: 5 },
+    'celestial:nebula': { classId: 71, type: 6 },
+    'celestial:star_cluster': { classId: 71, type: 7 },
+    'celestial:constellation': { classId: 71, type: 8 },
+    'celestial:star_system': { classId: 71, type: 9 },
+    'celestial:star': { classId: 71, type: 10 },
+    'celestial:planet_system': { classId: 71, type: 11 },
+    'celestial:planet': { classId: 71, type: 12 },
+    'celestial:moon': { classId: 71, type: 13 },
+    'celestial:debris': { classId: 71, type: 14 },
+    'celestial:satellite': { classId: 71, type: 15 },
+    'celestial:transport': { classId: 71, type: 16 },
+    'celestial:surface': { classId: 71, type: 17 },
+    'terrestrial:root': { classId: 72, type: 1 },
+    'terrestrial:water': { classId: 72, type: 2 },
+    'terrestrial:land': { classId: 72, type: 3 },
+    'terrestrial:country': { classId: 72, type: 4 },
+    'terrestrial:territory': { classId: 72, type: 5 },
+    'terrestrial:state': { classId: 72, type: 6 },
+    'terrestrial:county': { classId: 72, type: 7 },
+    'terrestrial:city': { classId: 72, type: 8 },
+    'terrestrial:community': { classId: 72, type: 9 },
+    'terrestrial:sector': { classId: 72, type: 10 },
+    'terrestrial:parcel': { classId: 72, type: 11 },
+    'physical:default': { classId: 73, type: 0 },
+    'physical:transport': { classId: 73, type: 1 },
 };
 // Class-aware action lookups
 const CLASS_ID_TO_OPEN_ACTION = {
@@ -896,6 +896,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         return pObject;
     }
     static CLASS_ID_TO_TYPE = {
+        [ClassIds.RMRoot]: 'RMRoot',
         [ClassIds.RMPObject]: 'RMPObject',
         [ClassIds.RMTObject]: 'RMTObject',
         [ClassIds.RMCObject]: 'RMCObject',
@@ -1351,7 +1352,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         if (filter?.type) {
             const typeInfo = ObjectTypeMap[filter.type];
             if (typeInfo) {
-                result = result.filter(obj => obj.classId === typeInfo.classId && obj.subtype === typeInfo.subtype);
+                result = result.filter(obj => obj.classId === typeInfo.classId && obj.type === typeInfo.type);
             }
             else {
                 result = result.filter(obj => obj.id.startsWith(filter.type + ':'));
@@ -1399,7 +1400,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 throw new Error(`Unknown objectType "${params.objectType}". Valid types: ${Object.keys(ObjectTypeMap).join(', ')}`);
             }
             childClassId = typeInfo.classId;
-            bType = typeInfo.subtype;
+            bType = typeInfo.type;
         }
         else {
             childClassId = ClassIds.RMPObject;
@@ -1430,7 +1431,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         const response = await this.sendAction(pParent, openInfo.action, (payload) => {
             payload.pName[openInfo.nameField] = params.name;
             payload.pType.bType = bType;
-            payload.pType.bSubtype = 0;
+            payload.pType.bSubtype = params.subtype ?? 0;
             payload.pType.bFiction = 0;
             if (childClassId === ClassIds.RMPObject) {
                 payload.pType.bMovable = 0;
@@ -1510,7 +1511,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             resourceName: params.resourceName ?? null,
             bound: null,
             classId: childClassId,
-            subtype: bType,
+            type: bType,
+            subtype: params.subtype ?? 0,
+            isAttachmentPoint: (params.subtype ?? 0) === 255,
             children: null,
             orbit: isCelestial ? params.orbit ?? undefined : undefined,
             properties: isCelestial ? params.properties ?? undefined : undefined,
@@ -1636,11 +1639,46 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 event.classId === classId &&
                 event.objectId === numericId, `update properties for ${params.objectId}`, undefined, startedAt);
         }
+        if (params.objectType !== undefined || params.subtype !== undefined) {
+            let desiredBType = pObject.pType?.bType ?? 0;
+            let desiredBSubtype = pObject.pType?.bSubtype ?? 0;
+            if (params.objectType !== undefined) {
+                const typeInfo = ObjectTypeMap[params.objectType];
+                if (!typeInfo) {
+                    throw new Error(`Unknown objectType "${params.objectType}". Valid types: ${Object.keys(ObjectTypeMap).join(', ')}`);
+                }
+                if (typeInfo.classId !== classId) {
+                    throw new Error(`Cannot change object class: object is class ${classId} but objectType "${params.objectType}" is class ${typeInfo.classId}. Class is immutable.`);
+                }
+                desiredBType = typeInfo.type;
+            }
+            if (params.subtype !== undefined) {
+                desiredBSubtype = params.subtype;
+            }
+            const currentBType = pObject.pType?.bType ?? 0;
+            const currentBSubtype = pObject.pType?.bSubtype ?? 0;
+            if (currentBType !== desiredBType || currentBSubtype !== desiredBSubtype) {
+                const startedAt = Date.now();
+                const response = await this.sendAction(pObject, 'TYPE', (payload) => {
+                    payload.pType.bType = desiredBType;
+                    payload.pType.bSubtype = desiredBSubtype;
+                    payload.pType.bFiction = pObject.pType?.bFiction ?? 0;
+                    payload.pType.bMovable = pObject.pType?.bMovable ?? 0;
+                });
+                if (response.nResult !== 0) {
+                    throw new Error(this.formatResponseError('Failed to update type', response));
+                }
+                await this._confirmMutation((event) => event.kind === 'updated' &&
+                    event.classId === classId &&
+                    event.objectId === numericId, `update type for ${params.objectId}`, undefined, startedAt);
+            }
+        }
         if (params.skipRefetch) {
             const parentPrefixedId = pObject.twParentIx && pObject.wClass_Parent
                 ? formatObjectRef(pObject.wClass_Parent, pObject.twParentIx)
                 : null;
             const isCelestial = pObject.wClass_Object === 71;
+            const effectiveBSubtype = params.subtype ?? (pObject.pType?.bSubtype ?? 0);
             return {
                 id: params.objectId,
                 parentId: parentPrefixedId,
@@ -1654,7 +1692,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 resourceName: params.resourceName ?? pObject.pResource?.sName ?? null,
                 bound: null,
                 classId: pObject.wClass_Object,
-                subtype: pObject.pType?.bType ?? 0,
+                type: pObject.pType?.bType ?? 0,
+                subtype: effectiveBSubtype,
+                isAttachmentPoint: effectiveBSubtype === 255,
                 children: null,
                 orbit: isCelestial && pObject.pOrbit_Spin ? {
                     period: params.orbit?.period ?? pObject.pOrbit_Spin.tmPeriod ?? 0,
@@ -1792,7 +1832,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 resourceName: pObject.pResource?.sName || null,
                 bound: null,
                 classId: pObject.wClass_Object,
-                subtype: pObject.pType?.bType ?? 0,
+                type: pObject.pType?.bType ?? 0,
+                subtype: pObject.pType?.bSubtype ?? 0,
+                isAttachmentPoint: (pObject.pType?.bSubtype ?? 0) === 255,
                 children: null,
             };
         }
@@ -2115,7 +2157,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         const childIds = this.getChildIds(rmx);
         // If nChildren > 0 but no children enumerated, they haven't been loaded yet
         const children = (nChildren > 0 && childIds.length === 0) ? null : childIds;
-        const parentId = rmx.twParentIx && rmx.wClass_Parent
+        const parentId = rmx.twParentIx && rmx.wClass_Parent && ClassIdToPrefix[rmx.wClass_Parent]
             ? formatObjectRef(rmx.wClass_Parent, rmx.twParentIx)
             : null;
         return {
@@ -2148,7 +2190,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 z: rmx.pBound.dZ ?? 0,
             } : null,
             classId: rmx.wClass_Object,
-            subtype: rmx.pType?.bType ?? 0,
+            type: rmx.pType?.bType ?? 0,
+            subtype: rmx.pType?.bSubtype ?? 0,
+            isAttachmentPoint: (rmx.pType?.bSubtype ?? 0) === 255,
             children,
             orbit: rmx.wClass_Object === 71 && rmx.pOrbit_Spin ? {
                 period: rmx.pOrbit_Spin.tmPeriod ?? 0,
@@ -2727,6 +2771,12 @@ export class ManifolderClient {
             }
             throw error;
         }
+        if (!attachmentObject.isAttachmentPoint) {
+            const err = new Error(`Object ${objectId} is not an attachment point (bSubtype !== 255)`);
+            err.code = 'ATTACHMENT_REFERENCE_INVALID';
+            err.scopeId = scopeId;
+            throw err;
+        }
         const msfReference = await getMsfReference({
             resourceRef: attachmentObject.resourceReference,
             properties: {
@@ -2736,8 +2786,8 @@ export class ManifolderClient {
             },
         });
         if (!msfReference) {
-            const err = new Error(`Object ${objectId} is not an attachment point`);
-            err.code = 'ATTACHMENT_REFERENCE_INVALID';
+            const err = new Error(`Attachment point ${objectId} has no resolvable MSF reference`);
+            err.code = 'UNRESOLVABLE_ATTACHMENT_POINT';
             err.scopeId = scopeId;
             throw err;
         }

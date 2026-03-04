@@ -59,43 +59,43 @@ export function formatObjectRef(classId: number, numericId: number): string {
   return `${prefix}:${numericId}`;
 }
 
-// ObjectTypeMap: maps "class:subtype" strings to { classId, bType }
-export const ObjectTypeMap: Record<string, { classId: number; subtype: number }> = {
-  // Celestial subtypes (class 71)
-  'celestial:universe': { classId: 71, subtype: 1 },
-  'celestial:supercluster': { classId: 71, subtype: 2 },
-  'celestial:galaxy_cluster': { classId: 71, subtype: 3 },
-  'celestial:galaxy': { classId: 71, subtype: 4 },
-  'celestial:black_hole': { classId: 71, subtype: 5 },
-  'celestial:nebula': { classId: 71, subtype: 6 },
-  'celestial:star_cluster': { classId: 71, subtype: 7 },
-  'celestial:constellation': { classId: 71, subtype: 8 },
-  'celestial:star_system': { classId: 71, subtype: 9 },
-  'celestial:star': { classId: 71, subtype: 10 },
-  'celestial:planet_system': { classId: 71, subtype: 11 },
-  'celestial:planet': { classId: 71, subtype: 12 },
-  'celestial:moon': { classId: 71, subtype: 13 },
-  'celestial:debris': { classId: 71, subtype: 14 },
-  'celestial:satellite': { classId: 71, subtype: 15 },
-  'celestial:transport': { classId: 71, subtype: 16 },
-  'celestial:surface': { classId: 71, subtype: 17 },
+// ObjectTypeMap: maps "class:type" strings to { classId, type (bType) }
+export const ObjectTypeMap: Record<string, { classId: number; type: number }> = {
+  // Celestial types (class 71)
+  'celestial:universe': { classId: 71, type: 1 },
+  'celestial:supercluster': { classId: 71, type: 2 },
+  'celestial:galaxy_cluster': { classId: 71, type: 3 },
+  'celestial:galaxy': { classId: 71, type: 4 },
+  'celestial:black_hole': { classId: 71, type: 5 },
+  'celestial:nebula': { classId: 71, type: 6 },
+  'celestial:star_cluster': { classId: 71, type: 7 },
+  'celestial:constellation': { classId: 71, type: 8 },
+  'celestial:star_system': { classId: 71, type: 9 },
+  'celestial:star': { classId: 71, type: 10 },
+  'celestial:planet_system': { classId: 71, type: 11 },
+  'celestial:planet': { classId: 71, type: 12 },
+  'celestial:moon': { classId: 71, type: 13 },
+  'celestial:debris': { classId: 71, type: 14 },
+  'celestial:satellite': { classId: 71, type: 15 },
+  'celestial:transport': { classId: 71, type: 16 },
+  'celestial:surface': { classId: 71, type: 17 },
 
-  // Terrestrial subtypes (class 72)
-  'terrestrial:root': { classId: 72, subtype: 1 },
-  'terrestrial:water': { classId: 72, subtype: 2 },
-  'terrestrial:land': { classId: 72, subtype: 3 },
-  'terrestrial:country': { classId: 72, subtype: 4 },
-  'terrestrial:territory': { classId: 72, subtype: 5 },
-  'terrestrial:state': { classId: 72, subtype: 6 },
-  'terrestrial:county': { classId: 72, subtype: 7 },
-  'terrestrial:city': { classId: 72, subtype: 8 },
-  'terrestrial:community': { classId: 72, subtype: 9 },
-  'terrestrial:sector': { classId: 72, subtype: 10 },
-  'terrestrial:parcel': { classId: 72, subtype: 11 },
+  // Terrestrial types (class 72)
+  'terrestrial:root': { classId: 72, type: 1 },
+  'terrestrial:water': { classId: 72, type: 2 },
+  'terrestrial:land': { classId: 72, type: 3 },
+  'terrestrial:country': { classId: 72, type: 4 },
+  'terrestrial:territory': { classId: 72, type: 5 },
+  'terrestrial:state': { classId: 72, type: 6 },
+  'terrestrial:county': { classId: 72, type: 7 },
+  'terrestrial:city': { classId: 72, type: 8 },
+  'terrestrial:community': { classId: 72, type: 9 },
+  'terrestrial:sector': { classId: 72, type: 10 },
+  'terrestrial:parcel': { classId: 72, type: 11 },
 
-  // Physical subtypes (class 73)
-  'physical': { classId: 73, subtype: 0 },
-  'physical:transport': { classId: 73, subtype: 1 },
+  // Physical types (class 73)
+  'physical:default': { classId: 73, type: 0 },
+  'physical:transport': { classId: 73, type: 1 },
 };
 
 export interface Vector3 {
@@ -189,7 +189,9 @@ export interface FabricObject {
   resourceName: string | null;
   bound: Vector3 | null;
   classId: number;
+  type: number;
   subtype: number;
+  isAttachmentPoint: boolean;
   children: string[] | null;
   orbit?: Orbit | null;
   properties?: CelestialProperties | null;
@@ -225,6 +227,7 @@ export interface CreateObjectParams {
   resourceName?: string;
   bound?: Vector3;
   objectType?: string;
+  subtype?: number;
   orbit?: Orbit;
   properties?: CelestialProperties;
   skipParentRefetch?: boolean;
@@ -239,6 +242,8 @@ export interface UpdateObjectParams {
   resourceReference?: string;
   resourceName?: string;
   bound?: Vector3;
+  objectType?: string;
+  subtype?: number;
   orbit?: Orbit;
   properties?: CelestialProperties;
   skipRefetch?: boolean;
