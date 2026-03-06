@@ -1711,7 +1711,34 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 } : undefined,
             };
         }
-        return this.getObject(params.objectId);
+        const result = await this.getObject(params.objectId);
+        for (const field of ['name', 'resourceReference', 'resourceName', 'bound', 'orbit']) {
+            if (params[field] !== undefined) {
+                result[field] = params[field];
+            }
+        }
+        for (const field of ['position', 'rotation', 'scale']) {
+            if (params[field] !== undefined) {
+                result.transform[field] = params[field];
+            }
+        }
+        if (params.objectType !== undefined) {
+            const typeInfo = ObjectTypeMap[params.objectType];
+            if (typeInfo) {
+                result.type = typeInfo.type;
+            }
+        }
+        if (params.subtype !== undefined) {
+            result.subtype = params.subtype;
+            result.isAttachmentPoint = params.subtype === 255;
+        }
+        if (params.properties !== undefined) {
+            result.properties = {
+                ...result.properties,
+                ...params.properties,
+            };
+        }
+        return result;
     }
     /**
      * @param {string} objectId
