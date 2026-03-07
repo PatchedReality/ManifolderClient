@@ -1,8 +1,8 @@
 # ManifolderClient
 
 ManifolderClient is a JavaScript library for connecting to MVMF-based
-[Open Metaverse](https://omb.wiki/)
-[Spatial Fabric](https://omb.wiki/en/spatial-fabric/architecture) servers.
+[Open Metaverse](https://omb.metaverse-standards.org/)
+[Spatial Fabric](https://omb.metaverse-standards.org/en/spatial-fabric/architecture) servers.
 It provides a shared client implementation used by both browser applications
 and Node.js tools.
 
