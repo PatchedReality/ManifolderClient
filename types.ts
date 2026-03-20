@@ -243,6 +243,13 @@ export interface AttachmentParentInfo {
   bound: Vector3;
 }
 
+export interface GeoMatrix {
+  d00: number; d01: number; d02: number; d03: number;
+  d10: number; d11: number; d12: number; d13: number;
+  d20: number; d21: number; d22: number; d23: number;
+  d30: number; d31: number; d32: number; d33: number;
+}
+
 export interface EarthAttachmentParentResult {
   parent: AttachmentParentInfo | null;
   candidates?: AttachmentParentInfo[];
@@ -256,6 +263,12 @@ export interface EarthAttachmentParentResult {
     boundZ: number;
     height: number;
     depth: number;
+  };
+  planet: {
+    radius: number;
+    matrix: GeoMatrix;
+    matrixInverse: GeoMatrix;
+    subsurface: { tnGeometry: number; dA: number; dB: number; dC: number };
   };
   geocode: {
     city?: string;

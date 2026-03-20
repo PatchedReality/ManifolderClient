@@ -2783,6 +2783,15 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 height: geometry.height,
                 depth: geometry.depth,
             },
+            planet: (() => {
+                const matrices = this.buildGeoMatrix(geometry.latitude, geometry.longitude, geometry.radius);
+                return {
+                    radius: geometry.radius,
+                    matrix: matrices.forward,
+                    matrixInverse: matrices.inverse,
+                    subsurface: { tnGeometry: 3, dA: geometry.latitude, dB: geometry.longitude, dC: geometry.radius },
+                };
+            })(),
             geocode,
         };
     }
