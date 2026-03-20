@@ -521,6 +521,7 @@ test('interface surfaces invoke all contract methods with bound client context',
     'moveObject',
     'bulkUpdate',
     'findObjects',
+    'findEarthAttachmentParent',
   ];
 
   for (const methodName of allMethods) {
@@ -1480,4 +1481,506 @@ test('deleteObject confirmation matches deleted event when parent metadata is mi
 
   await client.deleteObject(objectId);
   assert.equal(matched, true);
+});
+
+test('latLonToWorldCoords converts known Earth coordinates', () => {
+  const client = new SingleScopeClient();
+  const equatorPrime = client.latLonToWorldCoords(0, 0);
+  assert.equal(equatorPrime.x, 0);
+  assert.equal(equatorPrime.y, 0);
+  assert.equal(Math.round(equatorPrime.z), 6371000);
+
+  const northPole = client.latLonToWorldCoords(90, 0);
+  assert.ok(Math.abs(northPole.x) < 1e-6);
+  assert.equal(Math.round(northPole.y), 6371000);
+  assert.ok(Math.abs(northPole.z) < 1e-6);
+});
+
+test('buildGeoMatrix matches known call_RMTMatrix_Geo values at 0N 0E', () => {
+  const client = new SingleScopeClient();
+  const { forward, inverse } = client.buildGeoMatrix(0, 0, 6371000);
+  assert.equal(forward.d00, 1);
+  assert.equal(forward.d01, 0);
+  assert.equal(forward.d02, 0);
+  assert.equal(forward.d03, 0);
+  assert.ok(Math.abs(forward.d11) < 1e-12);
+  assert.equal(forward.d12, -1);
+  assert.equal(forward.d23, 6371000);
+
+  assert.equal(inverse.d00, 1);
+  assert.ok(Math.abs(inverse.d11) < 1e-12);
+  assert.equal(inverse.d12, 1);
+  assert.equal(inverse.d13, -6371000);
+  assert.equal(inverse.d21, -1);
+});
+
+test('computeCampusGeometry matches stored procedure results for Rowan sample nodes', () => {
+  const client = new SingleScopeClient();
+  const geometry = client.computeCampusGeometry({
+    nodes: [
+      { lat: 39.716, lon: -75.121 },
+      { lat: 39.703, lon: -75.112 },
+      { lat: 39.711, lon: -75.128 },
+      { lat: 39.708, lon: -75.111 },
+    ],
+  });
+
+  assert.ok(Math.abs(geometry.latitude - 39.709500125459854) < 1e-9);
+  assert.ok(Math.abs(geometry.longitude - (-75.11949981519513)) < 1e-9);
+  assert.ok(Math.abs(geometry.radius - 6370499.958512202) < 1e-6);
+  assert.ok(Math.abs(geometry.boundX - 1454.3204545488397) < 1e-6);
+  assert.ok(Math.abs(geometry.boundY - 1000.0414877980947) < 1e-6);
+  assert.ok(Math.abs(geometry.boundZ - 1445.6217324204029) < 1e-6);
+  assert.equal(geometry.sectorSubtype, 2);
+});
+
+test('computeCampusGeometry computes bounds from direct boundX/boundZ input', () => {
+  const client = new SingleScopeClient();
+  const R = 6371000;
+  const geometry = client.computeCampusGeometry({
+    lat: 28.3772,
+    lon: -81.5707,
+    boundX: 2500,
+    boundZ: 2500,
+  }, R);
+
+  assert.equal(geometry.latitude, 28.3772);
+  assert.equal(geometry.longitude, -81.5707);
+  assert.equal(geometry.sectorSubtype, 1);
+  assert.equal(geometry.height, 750);
+  assert.equal(geometry.depth, 750);
+  assert.ok(geometry.boundX > 0);
+  assert.ok(geometry.boundZ > 0);
+  assert.ok(geometry.boundY > 0);
+  assert.ok(geometry.radius > 0);
+  assert.equal(geometry.containmentBound.x, 2500);
+  assert.equal(geometry.containmentBound.z, 2500);
+  assert.equal(geometry.containmentBound.y, 750);
+});
+
+test('computeCampusGeometry rejects sub-minimum extents', () => {
+  const client = new SingleScopeClient();
+  assert.throws(() => client.computeCampusGeometry({ lat: 0, lon: 0, boundX: 25, boundZ: 25 }), /Campus extent must be at least 0.1 km/);
+});
+
+test('computeCampusGeometry rejects nodes + boundX/boundZ together', () => {
+  const client = new SingleScopeClient();
+  assert.throws(() => client.computeCampusGeometry({
+    nodes: [{ lat: 0, lon: 0 }, { lat: 1, lon: 0 }, { lat: 1, lon: 1 }, { lat: 0, lon: 1 }],
+    boundX: 2500,
+    boundZ: 2500,
+  }), /Provide either nodes or boundX\/boundZ, not both/);
+});
+
+test('reverseGeocode parses Nominatim responses and returns null on failures', async () => {
+  const client = new SingleScopeClient();
+  const originalFetch = globalThis.fetch;
+
+  try {
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        address: {
+          city: 'Bay Lake',
+          county: 'Orange County',
+          state: 'Florida',
+          country: 'United States',
+          suburb: 'Disney',
+        },
+      }),
+    });
+    const parsed = await client.reverseGeocode(28.3772, -81.5707);
+    assert.deepEqual(parsed, {
+      city: 'Bay Lake',
+      community: 'Disney',
+      county: 'Orange County',
+      state: 'Florida',
+      country: 'United States',
+    });
+
+    globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
+    assert.equal(await client.reverseGeocode(28.3772, -81.5707), null);
+
+    globalThis.fetch = async () => {
+      throw new Error('timeout');
+    };
+    assert.equal(await client.reverseGeocode(28.3772, -81.5707), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('getSectorSubtypeRule maps diameter thresholds to the correct subtype and bounds profile', () => {
+  const client = new SingleScopeClient();
+  assert.deepEqual(client.getSectorSubtypeRule(50), { minDiameterKm: 50, subtype: 0, height: 1000, depth: 1000 });
+  assert.deepEqual(client.getSectorSubtypeRule(5), { minDiameterKm: 5, subtype: 1, height: 750, depth: 750 });
+  assert.deepEqual(client.getSectorSubtypeRule(0.5), { minDiameterKm: 0.5, subtype: 2, height: 500, depth: 500 });
+  assert.deepEqual(client.getSectorSubtypeRule(0.1), { minDiameterKm: 0.1, subtype: 3, height: 250, depth: 250 });
+  assert.throws(() => client.getSectorSubtypeRule(0.09), /Diameter must be at least 0.1 km/);
+});
+
+test('pointInLocalBounds and campusFitsInLocalBounds apply local-frame containment', () => {
+  const { pointInLocalBounds, campusFitsInLocalBounds } = await import('./ManifolderClient.js');
+  const nodeBound = { x: 10, y: 5, z: 8 };
+
+  // pointInLocalBounds: point within ±bound on all axes
+  assert.equal(pointInLocalBounds({ x: 0, y: 0, z: 0 }, nodeBound), true);
+  assert.equal(pointInLocalBounds({ x: 10, y: 5, z: 8 }, nodeBound), true); // exact boundary
+  assert.equal(pointInLocalBounds({ x: 11, y: 0, z: 0 }, nodeBound), false); // X overflow
+  assert.equal(pointInLocalBounds({ x: 0, y: 6, z: 0 }, nodeBound), false); // Y overflow
+  assert.equal(pointInLocalBounds({ x: 0, y: 0, z: 9 }, nodeBound), false); // Z overflow
+  assert.equal(pointInLocalBounds({ x: 0, y: 0, z: 0 }, null), false); // null bound
+
+  // campusFitsInLocalBounds: point + campus half-extents within ±bound
+  const campusBound = { x: 4, y: 2, z: 3 };
+  assert.equal(campusFitsInLocalBounds({ x: 0, y: 0, z: 0 }, campusBound, nodeBound), true); // centered
+  assert.equal(campusFitsInLocalBounds({ x: 6, y: 0, z: 0 }, campusBound, nodeBound), true); // 6+4=10 <= 10
+  assert.equal(campusFitsInLocalBounds({ x: 7, y: 0, z: 0 }, campusBound, nodeBound), false); // 7+4=11 > 10
+  assert.equal(campusFitsInLocalBounds({ x: 0, y: 0, z: 5 }, campusBound, nodeBound), true); // 5+3=8 <= 8
+  assert.equal(campusFitsInLocalBounds({ x: 0, y: 0, z: 6 }, campusBound, nodeBound), false); // 6+3=9 > 8
+  assert.equal(campusFitsInLocalBounds({ x: 0, y: 3, z: 0 }, campusBound, nodeBound), true); // 3+2=5 <= 5
+  assert.equal(campusFitsInLocalBounds({ x: 0, y: 4, z: 0 }, campusBound, nodeBound), false); // 4+2=6 > 5
+  assert.equal(campusFitsInLocalBounds({ x: 0, y: 0, z: 0 }, campusBound, null), false); // null bound
+});
+
+test('disambiguateSearchResults prefers ancestry matches before distance', () => {
+  const client = new SingleScopeClient();
+  const results = [
+    {
+      object: { id: 'terrestrial:1', name: 'Springfield', classId: 72, type: 8, subtype: 0 },
+      ancestry: [
+        { objectId: 'terrestrial:10', name: 'Illinois', classId: 72, type: 6 },
+        { objectId: 'terrestrial:11', name: 'United States', classId: 72, type: 4 },
+      ],
+      arcDistance: 1,
+    },
+    {
+      object: { id: 'terrestrial:2', name: 'Springfield', classId: 72, type: 8, subtype: 0 },
+      ancestry: [
+        { objectId: 'terrestrial:20', name: 'Missouri', classId: 72, type: 6 },
+        { objectId: 'terrestrial:21', name: 'United States', classId: 72, type: 4 },
+      ],
+      arcDistance: 1000,
+    },
+  ];
+
+  const selected = client.disambiguateSearchResults(results, {
+    state: 'Missouri',
+    country: 'United States',
+  });
+  assert.equal(selected.object.id, 'terrestrial:2');
+});
+
+test('filterSearchResultsByExactName removes prefix-only matches when an exact name exists', () => {
+  const client = new SingleScopeClient();
+  const results = [
+    { object: { id: 'terrestrial:1', name: 'Springfield Mennonite Community' } },
+    { object: { id: 'terrestrial:2', name: 'Springfield' } },
+  ];
+
+  const filtered = client.filterSearchResultsByExactName(results, 'Springfield');
+  assert.deepEqual(filtered.map((entry) => entry.object.id), ['terrestrial:2']);
+});
+
+test('findEarthAttachmentParent treats provided names as search hints rather than overriding geometry', async () => {
+  const client = new SingleScopeClient();
+  const earth = {
+    id: 'terrestrial:1',
+    parentId: 'root',
+    name: 'Earth',
+    classId: 72,
+    type: 1,
+    subtype: 0,
+    bound: { x: 100000, y: 100000, z: 100000 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: ['terrestrial:sangamon'],
+  };
+  const sangamon = {
+    id: 'terrestrial:sangamon',
+    parentId: earth.id,
+    name: 'Sangamon County',
+    classId: 72,
+    type: 7,
+    subtype: 2,
+    bound: { x: 10000, y: 5000, z: 10000 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: ['terrestrial:springfield', 'terrestrial:southern-view'],
+  };
+  const springfield = {
+    id: 'terrestrial:springfield',
+    parentId: sangamon.id,
+    name: 'Springfield',
+    classId: 72,
+    type: 8,
+    subtype: 3,
+    bound: { x: 1500, y: 500, z: 1500 },
+    transform: { position: { x: 6000, y: 0, z: 0 } },
+    children: [],
+  };
+  const southernView = {
+    id: 'terrestrial:southern-view',
+    parentId: sangamon.id,
+    name: 'Southern View',
+    classId: 72,
+    type: 8,
+    subtype: 3,
+    bound: { x: 1500, y: 500, z: 1500 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: [],
+  };
+  const loadedById = new Map([
+    [earth.id, earth],
+    [sangamon.id, sangamon],
+    [springfield.id, springfield],
+    [southernView.id, southernView],
+  ]);
+
+  client.ensureConnected = async () => {};
+  client.resolveTerrestrialRootObjectId = async () => earth.id;
+  client.computeCampusGeometry = () => ({
+    latitude: 39.7525,
+    longitude: -89.65,
+    radius: 6370249.5,
+    boundX: 5000,
+    boundY: 1500,
+    boundZ: 5000,
+    height: 750,
+    depth: 750,
+    sectorSubtype: 1,
+    sectorSubtype: 1,
+  });
+  client.reverseGeocode = async () => ({
+    city: 'Southern View',
+    county: 'Sangamon County',
+    state: 'Illinois',
+    country: 'United States',
+  });
+  client.latLonToWorldCoords = () => ({ x: 0, y: 0, z: 0 });
+  client.serverSearch = async () => [{
+    object: springfield,
+    ancestry: [
+      { objectId: sangamon.id, ancestorDepth: 1 },
+    ],
+  }];
+  client.getObject = async (objectId) => {
+    const loaded = loadedById.get(objectId);
+    if (!loaded) {
+      throw new Error(`Unexpected object lookup: ${objectId}`);
+    }
+    return loaded;
+  };
+
+  const result = await client.findEarthAttachmentParent(undefined, {
+    lat: 39.7525,
+    lon: -89.65,
+    boundX: 2500, boundZ: 2500,
+    city: 'Springfield',
+  });
+
+  assert.equal(result.parent?.objectId, sangamon.id);
+  assert.equal(result.parent?.name, 'Sangamon County');
+  assert.equal(result.geocode.city, 'Southern View');
+  assert.equal(result.geocode.state, 'Illinois');
+});
+
+test('findEarthAttachmentParent falls back to the last exact-fit ancestor when no deeper child contains the point', async () => {
+  const client = new SingleScopeClient();
+  const earth = {
+    id: 'terrestrial:1',
+    parentId: 'root',
+    name: 'Earth',
+    classId: 72,
+    type: 1,
+    subtype: 0,
+    bound: { x: 0, y: 0, z: 0 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: ['terrestrial:na'],
+  };
+  const northAmerica = {
+    id: 'terrestrial:na',
+    parentId: earth.id,
+    name: 'North America',
+    classId: 72,
+    type: 3,
+    subtype: 0,
+    bound: { x: 10000, y: 5000, z: 10000 },
+    transform: { position: { x: 0, y: 0, z: 6371000 } },
+    children: ['terrestrial:usa'],
+  };
+  const unitedStates = {
+    id: 'terrestrial:usa',
+    parentId: northAmerica.id,
+    name: 'United States',
+    classId: 72,
+    type: 4,
+    subtype: 0,
+    bound: { x: 5000, y: 5000, z: 5000 },
+    transform: { position: { x: 50000, y: 0, z: 0 } },
+    children: [],
+  };
+  const loadedById = new Map([
+    [earth.id, earth],
+    [northAmerica.id, northAmerica],
+    [unitedStates.id, unitedStates],
+  ]);
+
+  client.ensureConnected = async () => {};
+  client.resolveTerrestrialRootObjectId = async () => earth.id;
+  client.computeCampusGeometry = () => ({
+    latitude: 28.3772,
+    longitude: -81.5707,
+    radius: 6370249.5,
+    boundX: 5000,
+    boundY: 1500,
+    boundZ: 5000,
+    height: 750,
+    depth: 750,
+    sectorSubtype: 1,
+    sectorSubtype: 1,
+  });
+  client.reverseGeocode = async () => ({
+    county: 'Orange County',
+    state: 'Florida',
+    country: 'United States',
+  });
+  client.latLonToWorldCoords = () => ({ x: 0, y: 0, z: 6371000 });
+  client.serverSearch = async () => [];
+  client.getObject = async (objectId) => {
+    const loaded = loadedById.get(objectId);
+    if (!loaded) {
+      throw new Error(`Unexpected object lookup: ${objectId}`);
+    }
+    return loaded;
+  };
+
+  const result = await client.findEarthAttachmentParent(undefined, {
+    lat: 28.3772,
+    lon: -81.5707,
+    boundX: 2500, boundZ: 2500,
+  });
+
+  assert.equal(result.parent?.objectId, northAmerica.id);
+  assert.equal(result.parent?.name, 'North America');
+});
+
+test('findEarthAttachmentParent backfills missing higher-level names from reverse geocoding', async () => {
+  const client = new SingleScopeClient();
+  const earth = {
+    id: 'terrestrial:1',
+    parentId: 'root',
+    name: 'Earth',
+    classId: 72,
+    type: 1,
+    subtype: 0,
+    bound: { x: 100000, y: 100000, z: 100000 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: ['terrestrial:illinois', 'terrestrial:ohio'],
+  };
+  const illinois = {
+    id: 'terrestrial:illinois',
+    parentId: earth.id,
+    name: 'Illinois',
+    classId: 72,
+    type: 6,
+    subtype: 1,
+    bound: { x: 20000, y: 5000, z: 20000 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: ['terrestrial:126326'],
+  };
+  const ohio = {
+    id: 'terrestrial:ohio',
+    parentId: earth.id,
+    name: 'Ohio',
+    classId: 72,
+    type: 6,
+    subtype: 1,
+    bound: { x: 20000, y: 5000, z: 20000 },
+    transform: { position: { x: 50000, y: 0, z: 0 } },
+    children: ['terrestrial:182868'],
+  };
+  const ohioSpringfield = {
+    id: 'terrestrial:182868',
+    parentId: ohio.id,
+    name: 'Springfield',
+    classId: 72,
+    type: 8,
+    subtype: 3,
+    bound: { x: 10000, y: 5000, z: 10000 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: [],
+  };
+  const illinoisSpringfield = {
+    id: 'terrestrial:126326',
+    parentId: illinois.id,
+    name: 'Springfield',
+    classId: 72,
+    type: 8,
+    subtype: 3,
+    bound: { x: 12000, y: 5000, z: 12000 },
+    transform: { position: { x: 0, y: 0, z: 0 } },
+    children: [],
+  };
+  const loadedById = new Map([
+    [earth.id, earth],
+    [illinois.id, illinois],
+    [ohio.id, ohio],
+    [illinoisSpringfield.id, illinoisSpringfield],
+    [ohioSpringfield.id, ohioSpringfield],
+  ]);
+
+  client.ensureConnected = async () => {};
+  client.resolveTerrestrialRootObjectId = async () => earth.id;
+  client.computeCampusGeometry = () => ({
+    latitude: 39.7982,
+    longitude: -89.6444,
+    radius: 6370249.509553878,
+    boundX: 5000,
+    boundY: 1500,
+    boundZ: 5000,
+    height: 750,
+    depth: 750,
+    sectorSubtype: 1,
+    sectorSubtype: 1,
+  });
+  client.reverseGeocode = async () => ({
+    city: 'Springfield',
+    county: 'Sangamon County',
+    state: 'Illinois',
+    country: 'United States',
+  });
+  client.latLonToWorldCoords = () => ({ x: 0, y: 0, z: 0 });
+  client.serverSearch = async () => [
+    {
+      object: ohioSpringfield,
+      ancestry: [
+        { objectId: 'terrestrial:ohio', name: 'Ohio', classId: 72, type: 6, ancestorDepth: 1 },
+        { objectId: 'terrestrial:us', name: 'United States', classId: 72, type: 4, ancestorDepth: 2 },
+      ],
+    },
+    {
+      object: illinoisSpringfield,
+      ancestry: [
+        { objectId: 'terrestrial:illinois', name: 'Illinois', classId: 72, type: 6, ancestorDepth: 1 },
+        { objectId: 'terrestrial:us', name: 'United States', classId: 72, type: 4, ancestorDepth: 2 },
+      ],
+    },
+  ];
+  client.getObject = async (objectId) => {
+    const loaded = loadedById.get(objectId);
+    if (!loaded) {
+      throw new Error(`Unexpected object lookup: ${objectId}`);
+    }
+    return loaded;
+  };
+
+  const result = await client.findEarthAttachmentParent(undefined, {
+    lat: 39.7982,
+    lon: -89.6444,
+    boundX: 2500, boundZ: 2500,
+    city: 'Springfield',
+  });
+
+  assert.equal(result.parent?.objectId, illinoisSpringfield.id);
+  assert.equal(result.geocode.state, 'Illinois');
+  assert.equal(result.geocode.country, 'United States');
 });

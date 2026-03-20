@@ -217,6 +217,55 @@ export interface SearchQuery {
   resourceUrl?: string;
 }
 
+export interface GeoNode {
+  lat: number;
+  lon: number;
+}
+
+export interface FindEarthAttachmentParentParams {
+  lat?: number;
+  lon?: number;
+  boundX?: number;
+  boundZ?: number;
+  boundY?: number;
+  nodes?: GeoNode[];
+  city?: string;
+  community?: string;
+  county?: string;
+  state?: string;
+  country?: string;
+}
+
+export interface AttachmentParentInfo {
+  objectId: string;
+  name: string;
+  objectType: string;
+  bound: Vector3;
+}
+
+export interface EarthAttachmentParentResult {
+  parent: AttachmentParentInfo | null;
+  candidates?: AttachmentParentInfo[];
+  sectorSubtype: number;
+  attachment: {
+    latitude: number;
+    longitude: number;
+    radius: number;
+    boundX: number;
+    boundY: number;
+    boundZ: number;
+    height: number;
+    depth: number;
+  };
+  geocode: {
+    city?: string;
+    community?: string;
+    county?: string;
+    state?: string;
+    country?: string;
+  };
+}
+
 export interface CreateObjectParams {
   parentId: string;
   name: string;

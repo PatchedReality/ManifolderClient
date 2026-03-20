@@ -36,6 +36,8 @@ export function computeNodeUid(scopeId: FabricScopeId, classId: number, numericI
  * @param {ManifolderClient} client
  * @returns {IManifolderSubscriptionClient}
  */
+export function pointInLocalBounds(localPoint: { x: number; y: number; z: number }, bound: { x: number; y: number; z: number } | null): boolean;
+export function campusFitsInLocalBounds(localPoint: { x: number; y: number; z: number }, campusBound: { x: number; y: number; z: number }, nodeBound: { x: number; y: number; z: number } | null): boolean;
 export function asManifolderSubscriptionClient(client: ManifolderClient): IManifolderSubscriptionClient;
 /**
  * @param {ManifolderClient} client
@@ -273,13 +275,82 @@ export class SingleScopeClient {
         errors: string[];
     }>;
     loadFullTree(scopeId: any): Promise<any[]>;
+    latLonToWorldCoords(lat: any, lon: any, radius?: number): {
+        x: number;
+        y: number;
+        z: number;
+    };
+    buildGeoMatrix(lat: any, lon: any, radius?: number): {
+        forward: {
+            d00: number;
+            d01: number;
+            d02: number;
+            d03: number;
+            d10: number;
+            d11: number;
+            d12: number;
+            d13: number;
+            d20: number;
+            d21: number;
+            d22: number;
+            d23: number;
+            d30: number;
+            d31: number;
+            d32: number;
+            d33: number;
+        };
+        inverse: {
+            d00: number;
+            d01: number;
+            d02: number;
+            d03: number;
+            d10: number;
+            d11: number;
+            d12: number;
+            d13: number;
+            d20: number;
+            d21: number;
+            d22: number;
+            d23: number;
+            d30: number;
+            d31: number;
+            d32: number;
+            d33: number;
+        };
+    };
+    getSectorSubtypeRule(diameterKm: any): {
+        minDiameterKm: number;
+        subtype: number;
+        height: number;
+        depth: number;
+    };
+    reverseGeocode(lat: any, lon: any): Promise<{
+        city: any;
+        community: any;
+        county: any;
+        state: any;
+        country: any;
+    } | null>;
+    computeCampusGeometry(params: any, radius?: number): {
+        latitude: any;
+        longitude: any;
+        radius: number;
+        boundX: number;
+        boundY: number;
+        boundZ: number;
+        height: number;
+        depth: number;
+        sectorSubtype: number;
+    };
+    resolveTerrestrialRootObjectId(): Promise<string>;
     /**
-     * @param {string} scopeId
+     * @param {string | undefined} anchorObjectId
      * @param {SearchQuery} query
      * @returns {Promise<FabricObject[]>}
      */
-    findObjects(scopeId: string, query: SearchQuery): Promise<FabricObject[]>;
-    serverSearch(scopeId: any, query: any): Promise<import("./types.js").FabricObject[]>;
+    findObjects(anchorObjectId: string | undefined, query: SearchQuery): Promise<FabricObject[]>;
+    findEarthAttachmentParent(anchorObjectId: string | undefined, params: FindEarthAttachmentParentParams): Promise<EarthAttachmentParentResult>;
+    serverSearch(anchorObjectId: any, query: any, options?: any): Promise<import("./types.js").FabricObject[]>;
     ensureConnected(): Promise<void>;
     translateError(raw: any): any;
     formatResponseError(operation: any, response: any): string;
@@ -521,6 +592,11 @@ export class ManifolderClient {
         anchorObjectId: any;
         query: any;
     }): Promise<import("./types.js").FabricObject[]>;
+    findEarthAttachmentParent({ scopeId, anchorObjectId, ...params }: {
+        [x: string]: any;
+        scopeId: any;
+        anchorObjectId: any;
+    }): Promise<EarthAttachmentParentResult>;
     followAttachment({ scopeId, objectId, autoOpenRoot }: {
         scopeId: any;
         objectId: any;
@@ -534,11 +610,14 @@ export class ManifolderClient {
     }>;
 }
 export type BulkOperation = import("./types.js").BulkOperation;
+export type AttachmentParentInfo = import("./types.js").AttachmentParentInfo;
 export type ConnectionStatus = import("./types.js").ConnectionStatus;
 export type ConnectRootParams = import("./types.js").ConnectRootParams;
 export type CreateObjectParams = import("./types.js").CreateObjectParams;
+export type EarthAttachmentParentResult = import("./types.js").EarthAttachmentParentResult;
 export type FabricObject = import("./types.js").FabricObject;
 export type FabricScopeId = import("./types.js").FabricScopeId;
+export type FindEarthAttachmentParentParams = import("./types.js").FindEarthAttachmentParentParams;
 export type FollowAttachmentParams = import("./types.js").FollowAttachmentParams;
 export type FollowAttachmentResult = import("./types.js").FollowAttachmentResult;
 export type NodeUid = import("./types.js").NodeUid;
@@ -576,5 +655,5 @@ declare namespace ClassIds {
 }
 declare const COMMON_CLIENT_METHODS: readonly ["connectRoot", "closeScope", "getScopeStatus", "listScopes", "followAttachment", "getResourceRootUrl"];
 declare const SUBSCRIPTION_ONLY_METHODS: readonly ["on", "off", "openModel", "closeModel", "enumerateChildren", "searchNodes"];
-declare const PROMISE_ONLY_METHODS: readonly ["listScenes", "openScene", "createScene", "deleteScene", "listObjects", "getObject", "createObject", "updateObject", "deleteObject", "moveObject", "bulkUpdate", "findObjects"];
+declare const PROMISE_ONLY_METHODS: readonly ["listScenes", "openScene", "createScene", "deleteScene", "listObjects", "getObject", "createObject", "updateObject", "deleteObject", "moveObject", "bulkUpdate", "findObjects", "findEarthAttachmentParent"];
 export {};

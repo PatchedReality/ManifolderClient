@@ -12,10 +12,12 @@ import { getMsfReference } from './node-helpers.js';
 /** @typedef {import('./types.js').CreateObjectParams} CreateObjectParams */
 /** @typedef {import('./types.js').FabricObject} FabricObject */
 /** @typedef {import('./types.js').FabricScopeId} FabricScopeId */
+/** @typedef {import('./types.js').FindEarthAttachmentParentParams} FindEarthAttachmentParentParams */
 /** @typedef {import('./types.js').FollowAttachmentParams} FollowAttachmentParams */
 /** @typedef {import('./types.js').FollowAttachmentResult} FollowAttachmentResult */
 /** @typedef {import('./types.js').NodeUid} NodeUid */
 /** @typedef {import('./types.js').ObjectFilter} ObjectFilter */
+/** @typedef {import('./types.js').EarthAttachmentParentResult} EarthAttachmentParentResult */
 /** @typedef {import('./types.js').Scene} Scene */
 /** @typedef {import('./types.js').SearchQuery} SearchQuery */
 /** @typedef {import('./types.js').ScopeInfo} ScopeInfo */
@@ -127,6 +129,341 @@ const CLASS_ID_TO_NAME_FIELD = {
     [ClassIds.RMPObject]: 'wsRMPObjectId',
 };
 const BASELINE_REQUIRE_LIST = 'MVRP_Dev,MVRP_Map';
+const EARTH_RADIUS_METERS = 6371000;
+const NOMINATIM_TIMEOUT_MS = 5000;
+const NOMINATIM_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
+const REVERSE_OBJECT_TYPE_MAP = Object.fromEntries(Object.entries(ObjectTypeMap).map(([key, value]) => [`${value.classId}:${value.type}`, key]));
+const TERRESTRIAL_GEO_FIELDS = ['country', 'state', 'county', 'city', 'community'];
+const SECTOR_SUBTYPE_RULES = [
+    { minDiameterKm: 50, subtype: 0, height: 1000, depth: 1000 },
+    { minDiameterKm: 5, subtype: 1, height: 750, depth: 750 },
+    { minDiameterKm: 0.5, subtype: 2, height: 500, depth: 500 },
+    { minDiameterKm: 0.1, subtype: 3, height: 250, depth: 250 },
+];
+function toRadians(value) {
+    return value * Math.PI / 180;
+}
+function toDegrees(value) {
+    return value * 180 / Math.PI;
+}
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+function normalizeLongitude(longitude) {
+    let normalized = longitude;
+    while (normalized > 180) {
+        normalized -= 360;
+    }
+    while (normalized < -180) {
+        normalized += 360;
+    }
+    return normalized;
+}
+function formatObjectTypeName(classId, type, subtype = 0) {
+    const base = REVERSE_OBJECT_TYPE_MAP[`${classId}:${type}`] ?? `${ClassIdToPrefix[classId] ?? `class${classId}`}:type${type}`;
+    if (subtype === 255) {
+        return `${base}:attachment`;
+    }
+    if (subtype > 0) {
+        return `${base}:${subtype}`;
+    }
+    return base;
+}
+function latLonToWorldCoords(lat, lon, radius) {
+    const latRad = toRadians(lat);
+    const lonRad = toRadians(lon);
+    return {
+        x: radius * Math.cos(latRad) * Math.sin(lonRad),
+        y: radius * Math.sin(latRad),
+        z: radius * Math.cos(latRad) * Math.cos(lonRad),
+    };
+}
+function worldCoordsToLatLon(position, radius) {
+    const length = Math.sqrt((position.x ** 2) + (position.y ** 2) + (position.z ** 2));
+    const effectiveRadius = length === 0 ? radius : length;
+    return {
+        latitude: toDegrees(Math.asin(clamp(position.y / effectiveRadius, -1, 1))),
+        longitude: toDegrees(Math.atan2(position.x, position.z)),
+    };
+}
+function invertMatrix(matrix) {
+    const d00 = matrix.d00;
+    const d01 = matrix.d01;
+    const d02 = matrix.d02;
+    const d03 = matrix.d03;
+    const d10 = matrix.d10;
+    const d11 = matrix.d11;
+    const d12 = matrix.d12;
+    const d13 = matrix.d13;
+    const d20 = matrix.d20;
+    const d21 = matrix.d21;
+    const d22 = matrix.d22;
+    const d23 = matrix.d23;
+    const d30 = matrix.d30;
+    const d31 = matrix.d31;
+    const d32 = matrix.d32;
+    const d33 = matrix.d33;
+    const s0 = d00 * d11 - d10 * d01;
+    const s1 = d00 * d12 - d10 * d02;
+    const s2 = d00 * d13 - d10 * d03;
+    const s3 = d01 * d12 - d11 * d02;
+    const s4 = d01 * d13 - d11 * d03;
+    const s5 = d02 * d13 - d12 * d03;
+    const c5 = d22 * d33 - d32 * d23;
+    const c4 = d21 * d33 - d31 * d23;
+    const c3 = d21 * d32 - d31 * d22;
+    const c2 = d20 * d33 - d30 * d23;
+    const c1 = d20 * d32 - d30 * d22;
+    const c0 = d20 * d31 - d30 * d21;
+    const determinant = s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0;
+    if (determinant === 0) {
+        throw new Error('Unable to invert singular geo matrix');
+    }
+    const inv = 1 / determinant;
+    return {
+        d00: (d11 * c5 - d12 * c4 + d13 * c3) * inv,
+        d01: (-d01 * c5 + d02 * c4 - d03 * c3) * inv,
+        d02: (d31 * s5 - d32 * s4 + d33 * s3) * inv,
+        d03: (-d21 * s5 + d22 * s4 - d23 * s3) * inv,
+        d10: (-d10 * c5 + d12 * c2 - d13 * c1) * inv,
+        d11: (d00 * c5 - d02 * c2 + d03 * c1) * inv,
+        d12: (-d30 * s5 + d32 * s2 - d33 * s1) * inv,
+        d13: (d20 * s5 - d22 * s2 + d23 * s1) * inv,
+        d20: (d10 * c4 - d11 * c2 + d13 * c0) * inv,
+        d21: (-d00 * c4 + d01 * c2 - d03 * c0) * inv,
+        d22: (d30 * s4 - d31 * s2 + d33 * s0) * inv,
+        d23: (-d20 * s4 + d21 * s2 - d23 * s0) * inv,
+        d30: (-d10 * c3 + d11 * c1 - d12 * c0) * inv,
+        d31: (d00 * c3 - d01 * c1 + d02 * c0) * inv,
+        d32: (-d30 * s3 + d31 * s1 - d32 * s0) * inv,
+        d33: (d20 * s3 - d21 * s1 + d22 * s0) * inv,
+    };
+}
+function buildGeoMatrix(lat, lon, radius) {
+    const dLatX = toRadians(90 - lat);
+    const dLat = toRadians(lat);
+    const dLon = toRadians(lon);
+    let dRad = radius;
+    let dOI = 1;
+    if (dRad < 0) {
+        dRad *= -1;
+        dOI *= -1;
+    }
+    const dCLatX = Math.cos(dLatX);
+    const dSLatX = Math.sin(dLatX);
+    const dCLat = Math.cos(dLat);
+    const dSLat = Math.sin(dLat);
+    const dCLon = Math.cos(dLon);
+    const dSLon = Math.sin(dLon);
+    const forward = {
+        d00: dOI * dCLon,
+        d01: dOI * dSLon * dSLatX,
+        d02: dSLon * dCLatX,
+        d03: dRad * dCLat * dSLon,
+        d10: 0,
+        d11: dOI * dCLatX,
+        d12: -dSLatX,
+        d13: dRad * dSLat,
+        d20: dOI * -dSLon,
+        d21: dOI * dCLon * dSLatX,
+        d22: dCLon * dCLatX,
+        d23: dRad * dCLat * dCLon,
+        d30: 0,
+        d31: 0,
+        d32: 0,
+        d33: 1,
+    };
+    return { forward, inverse: invertMatrix(forward) };
+}
+function transformPoint(matrix, point) {
+    return {
+        x: (matrix.d00 * point.x) + (matrix.d01 * point.y) + (matrix.d02 * point.z) + matrix.d03,
+        y: (matrix.d10 * point.x) + (matrix.d11 * point.y) + (matrix.d12 * point.z) + matrix.d13,
+        z: (matrix.d20 * point.x) + (matrix.d21 * point.y) + (matrix.d22 * point.z) + matrix.d23,
+    };
+}
+function composeMatrixFromTransform(pos, rot, scale) {
+    const x = rot.x, y = rot.y, z = rot.z, w = rot.w;
+    const sx = scale.x, sy = scale.y, sz = scale.z;
+    const x2 = x + x, y2 = y + y, z2 = z + z;
+    const xx = x * x2, xy = x * y2, xz = x * z2;
+    const yy = y * y2, yz = y * z2, zz = z * z2;
+    const wx = w * x2, wy = w * y2, wz = w * z2;
+    return {
+        d00: (1 - (yy + zz)) * sx, d01: (xy - wz) * sy, d02: (xz + wy) * sz, d03: pos.x,
+        d10: (xy + wz) * sx, d11: (1 - (xx + zz)) * sy, d12: (yz - wx) * sz, d13: pos.y,
+        d20: (xz - wy) * sx, d21: (yz + wx) * sy, d22: (1 - (xx + yy)) * sz, d23: pos.z,
+        d30: 0, d31: 0, d32: 0, d33: 1,
+    };
+}
+function multiplyMatrices(a, b) {
+    return {
+        d00: a.d00 * b.d00 + a.d01 * b.d10 + a.d02 * b.d20 + a.d03 * b.d30,
+        d01: a.d00 * b.d01 + a.d01 * b.d11 + a.d02 * b.d21 + a.d03 * b.d31,
+        d02: a.d00 * b.d02 + a.d01 * b.d12 + a.d02 * b.d22 + a.d03 * b.d32,
+        d03: a.d00 * b.d03 + a.d01 * b.d13 + a.d02 * b.d23 + a.d03 * b.d33,
+        d10: a.d10 * b.d00 + a.d11 * b.d10 + a.d12 * b.d20 + a.d13 * b.d30,
+        d11: a.d10 * b.d01 + a.d11 * b.d11 + a.d12 * b.d21 + a.d13 * b.d31,
+        d12: a.d10 * b.d02 + a.d11 * b.d12 + a.d12 * b.d22 + a.d13 * b.d32,
+        d13: a.d10 * b.d03 + a.d11 * b.d13 + a.d12 * b.d23 + a.d13 * b.d33,
+        d20: a.d20 * b.d00 + a.d21 * b.d10 + a.d22 * b.d20 + a.d23 * b.d30,
+        d21: a.d20 * b.d01 + a.d21 * b.d11 + a.d22 * b.d21 + a.d23 * b.d31,
+        d22: a.d20 * b.d02 + a.d21 * b.d12 + a.d22 * b.d22 + a.d23 * b.d32,
+        d23: a.d20 * b.d03 + a.d21 * b.d13 + a.d22 * b.d23 + a.d23 * b.d33,
+        d30: a.d30 * b.d00 + a.d31 * b.d10 + a.d32 * b.d20 + a.d33 * b.d30,
+        d31: a.d30 * b.d01 + a.d31 * b.d11 + a.d32 * b.d21 + a.d33 * b.d31,
+        d32: a.d30 * b.d02 + a.d31 * b.d12 + a.d32 * b.d22 + a.d33 * b.d32,
+        d33: a.d30 * b.d03 + a.d31 * b.d13 + a.d32 * b.d23 + a.d33 * b.d33,
+    };
+}
+function objectToRelativeMatrix(obj) {
+    const t = obj.transform ?? {};
+    return composeMatrixFromTransform(
+        t.position ?? { x: 0, y: 0, z: 0 },
+        t.rotation ?? { x: 0, y: 0, z: 0, w: 1 },
+        t.scale ?? { x: 1, y: 1, z: 1 },
+    );
+}
+export function pointInLocalBounds(localPoint, bound) {
+    if (!bound) {
+        return false;
+    }
+    return Math.abs(localPoint.x) <= bound.x &&
+        Math.abs(localPoint.y) <= bound.y &&
+        Math.abs(localPoint.z) <= bound.z;
+}
+export function campusFitsInLocalBounds(localPoint, campusBound, nodeBound) {
+    if (!nodeBound) {
+        return false;
+    }
+    return Math.abs(localPoint.x) + campusBound.x <= nodeBound.x &&
+        Math.abs(localPoint.y) + campusBound.y <= nodeBound.y &&
+        Math.abs(localPoint.z) + campusBound.z <= nodeBound.z;
+}
+function computeSectorBounds(halfX, halfZ, height, depth, radius) {
+    const boundX = halfX * (radius + height) / radius * 2;
+    const boundZ = halfZ * (radius + height) / radius * 2;
+    const maxHalf = Math.max(halfX, halfZ);
+    const scaledHalf = maxHalf * (radius - depth) / radius;
+    const adjustedRadius = Math.sqrt(Math.max(0, ((radius - depth) * (radius - depth)) - (scaledHalf * scaledHalf)));
+    const boundY = radius + height - adjustedRadius;
+    return { boundX, boundY, boundZ, adjustedRadius };
+}
+function computeChildMatrices(childObj, parentWorldMatrix) {
+    const childRelative = objectToRelativeMatrix(childObj);
+    const worldMatrix = multiplyMatrices(parentWorldMatrix, childRelative);
+    return { worldMatrix, inverseWorldMatrix: invertMatrix(worldMatrix) };
+}
+function getSectorSubtypeRule(diameterKm) {
+    for (const rule of SECTOR_SUBTYPE_RULES) {
+        if (diameterKm >= rule.minDiameterKm) {
+            return rule;
+        }
+    }
+    throw new Error('Diameter must be at least 0.1 km');
+}
+function hasCampusSize(nodeBound, campusBound) {
+    return !!nodeBound && campusBound.x <= nodeBound.x && campusBound.y <= nodeBound.y && campusBound.z <= nodeBound.z;
+}
+function getBoundArea(bound) {
+    if (!bound) {
+        return Number.POSITIVE_INFINITY;
+    }
+    return bound.x * bound.z;
+}
+function toAttachmentParentInfo(object) {
+    return {
+        objectId: object.id,
+        name: object.name,
+        objectType: formatObjectTypeName(object.classId, object.type, object.subtype),
+        bound: object.bound ?? { x: 0, y: 0, z: 0 },
+    };
+}
+function normalizeSearchName(value) {
+    return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+function mergeResolvedGeocode(reverseGeocode, providedNames) {
+    const filtered = Object.fromEntries(Object.entries(providedNames ?? {}).filter(([, value]) => value));
+    return {
+        ...(reverseGeocode ?? {}),
+        ...filtered,
+    };
+}
+function buildPreferredPathIds(result) {
+    const sortedAncestors = [...(result?.ancestry ?? [])]
+        .sort((a, b) => (b.ancestorDepth ?? 0) - (a.ancestorDepth ?? 0))
+        .map((ancestor) => ancestor.objectId)
+        .filter(Boolean);
+    if (result?.object?.id) {
+        sortedAncestors.push(result.object.id);
+    }
+    return sortedAncestors;
+}
+function normalizeVector(vec) {
+    const magnitude = Math.hypot(vec?.x ?? 0, vec?.y ?? 0, vec?.z ?? 0);
+    if (!Number.isFinite(magnitude) || magnitude === 0) {
+        return null;
+    }
+    return {
+        x: vec.x / magnitude,
+        y: vec.y / magnitude,
+        z: vec.z / magnitude,
+    };
+}
+function computeSurfaceArcDistanceMeters(a, b, radius = EARTH_RADIUS_METERS) {
+    const normA = normalizeVector(a);
+    const normB = normalizeVector(b);
+    if (!normA || !normB) {
+        return Number.POSITIVE_INFINITY;
+    }
+    const dot = Math.max(-1, Math.min(1, normA.x * normB.x + normA.y * normB.y + normA.z * normB.z));
+    return Math.acos(dot) * radius;
+}
+function worldPosFromMatrix(matrix) {
+    return { x: matrix.d03, y: matrix.d13, z: matrix.d23 };
+}
+function sortContainingEntriesBySurfaceDistance(entries, campusWorldPos, preferredPathOrder) {
+    entries.sort((a, b) => {
+        const aWorldPos = worldPosFromMatrix(a.worldMatrix);
+        const bWorldPos = worldPosFromMatrix(b.worldMatrix);
+        const aDistance = computeSurfaceArcDistanceMeters(aWorldPos, campusWorldPos);
+        const bDistance = computeSurfaceArcDistanceMeters(bWorldPos, campusWorldPos);
+        if (aDistance !== bDistance) {
+            return aDistance - bDistance;
+        }
+        const aRank = preferredPathOrder.get(a.object.id) ?? Number.POSITIVE_INFINITY;
+        const bRank = preferredPathOrder.get(b.object.id) ?? Number.POSITIVE_INFINITY;
+        if (aRank !== bRank) {
+            return aRank - bRank;
+        }
+        return getBoundArea(a.object.bound) - getBoundArea(b.object.bound);
+    });
+}
+function buildAncestorMap(rows) {
+    const ancestryByOrder = new Map();
+    for (const row of rows ?? []) {
+        const order = Number.isInteger(row?.nOrder) ? row.nOrder : 0;
+        const item = {
+            objectId: formatObjectRef(row.ObjectHead_wClass_Object, row.ObjectHead_twObjectIx),
+            name: row.Name_wsRMCObjectId || row.Name_wsRMTObjectId || '',
+            classId: row.ObjectHead_wClass_Object,
+            type: row.Type_bType ?? 0,
+            subtype: row.Type_bSubtype ?? 0,
+            parentId: row.ObjectHead_wClass_Parent && row.ObjectHead_twParentIx
+                ? formatObjectRef(row.ObjectHead_wClass_Parent, row.ObjectHead_twParentIx)
+                : null,
+            ancestorDepth: row.nAncestor ?? 0,
+        };
+        if (!ancestryByOrder.has(order)) {
+            ancestryByOrder.set(order, []);
+        }
+        ancestryByOrder.get(order).push(item);
+    }
+    for (const items of ancestryByOrder.values()) {
+        items.sort((a, b) => (b.ancestorDepth ?? 0) - (a.ancestorDepth ?? 0));
+    }
+    return ancestryByOrder;
+}
 
 /**
  * Normalize a fabric URL to a canonical form used for deterministic scope IDs.
@@ -2004,17 +2341,463 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         }
         return objects;
     }
+    latLonToWorldCoords(lat, lon, radius = EARTH_RADIUS_METERS) {
+        return latLonToWorldCoords(lat, lon, radius);
+    }
+    buildGeoMatrix(lat, lon, radius = EARTH_RADIUS_METERS) {
+        return buildGeoMatrix(lat, lon, radius);
+    }
+    getSectorSubtypeRule(diameterKm) {
+        return getSectorSubtypeRule(diameterKm);
+    }
+    async reverseGeocode(lat, lon) {
+        if (typeof fetch !== 'function') {
+            return null;
+        }
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), NOMINATIM_TIMEOUT_MS) : null;
+        try {
+            const url = new URL(NOMINATIM_ENDPOINT);
+            url.searchParams.set('lat', String(lat));
+            url.searchParams.set('lon', String(lon));
+            url.searchParams.set('format', 'json');
+            url.searchParams.set('zoom', '10');
+            const response = await fetch(url, {
+                headers: {
+                    'User-Agent': 'ManifolderClient/0.1.0',
+                    'Accept': 'application/json',
+                },
+                signal: controller?.signal,
+            });
+            if (!response.ok) {
+                return null;
+            }
+            const payload = await response.json();
+            const address = payload?.address;
+            if (!address) {
+                return null;
+            }
+            const city = address.city || address.town || address.village || address.municipality || address.hamlet;
+            const community = address.suburb || address.neighbourhood || address.city_district || address.quarter;
+            const county = address.county || address.state_district;
+            const state = address.state || address.region;
+            const country = address.country;
+            if (!city && !community && !county && !state && !country) {
+                return null;
+            }
+            return { city, community, county, state, country };
+        }
+        catch {
+            return null;
+        }
+        finally {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+        }
+    }
+    computeCampusGeometry(params, radius = EARTH_RADIUS_METERS) {
+        const hasNodes = Array.isArray(params.nodes) && params.nodes.length > 0;
+        if (!hasNodes && !(typeof params.lat === 'number' && typeof params.lon === 'number' && typeof params.boundX === 'number' && typeof params.boundZ === 'number')) {
+            throw new Error('Either lat + lon + boundX + boundZ, or nodes, must be provided');
+        }
+        if (hasNodes && (typeof params.boundX === 'number' || typeof params.boundZ === 'number')) {
+            throw new Error('Provide either nodes or boundX/boundZ, not both');
+        }
+        if (hasNodes && params.nodes.length < 4) {
+            throw new Error('nodes must include at least 4 entries');
+        }
+        const validateLatLon = (lat, lon) => {
+            if (lat < -90 || lat > 90) {
+                throw new Error(`Latitude out of range: ${lat}`);
+            }
+            if (lon < -180 || lon > 180) {
+                throw new Error(`Longitude out of range: ${lon}`);
+            }
+        };
+        if (typeof params.lat === 'number' && typeof params.lon === 'number') {
+            validateLatLon(params.lat, params.lon);
+        }
+        if (hasNodes) {
+            for (const node of params.nodes) {
+                validateLatLon(node.lat, node.lon);
+            }
+        }
+        if (!hasNodes) {
+            const halfX = params.boundX;
+            const halfZ = params.boundZ;
+            const maxExtentKm = Math.max(halfX, halfZ) * 2 / 1000;
+            if (maxExtentKm < 0.1) {
+                throw new Error('Campus extent must be at least 0.1 km');
+            }
+            const rule = this.getSectorSubtypeRule(maxExtentKm);
+            const sectorHeight = params.boundY ?? rule.height;
+            const sectorDepth = rule.depth;
+            const bounds = computeSectorBounds(halfX, halfZ, sectorHeight, sectorDepth, radius);
+            return {
+                latitude: params.lat,
+                longitude: params.lon,
+                radius: bounds.adjustedRadius,
+                boundX: bounds.boundX,
+                boundY: bounds.boundY,
+                boundZ: bounds.boundZ,
+                containmentBound: { x: halfX, y: sectorHeight, z: halfZ },
+                height: sectorHeight,
+                depth: sectorDepth,
+                sectorSubtype: rule.subtype,
+            };
+        }
+        let latMin = Number.POSITIVE_INFINITY;
+        let latMax = Number.NEGATIVE_INFINITY;
+        let lonMin = Number.POSITIVE_INFINITY;
+        let lonMax = Number.NEGATIVE_INFINITY;
+        const worldNodes = params.nodes.map((node) => {
+            latMin = Math.min(latMin, node.lat);
+            latMax = Math.max(latMax, node.lat);
+            lonMin = Math.min(lonMin, node.lon);
+            lonMax = Math.max(lonMax, node.lon);
+            return {
+                latitude: node.lat,
+                longitude: node.lon,
+                ...latLonToWorldCoords(node.lat, node.lon, radius),
+            };
+        });
+        let latMid = (latMin + latMax) / 2;
+        let lonMid;
+        if ((lonMax - lonMin) > 270) {
+            const positiveLongitudes = params.nodes.filter((node) => node.lon >= 0).map((node) => node.lon);
+            const negativeLongitudes = params.nodes.filter((node) => node.lon < 0).map((node) => node.lon);
+            lonMin = Math.min(...positiveLongitudes);
+            lonMax = Math.max(...negativeLongitudes);
+            lonMid = normalizeLongitude((lonMin + lonMax + 360) / 2);
+        }
+        else {
+            lonMid = (lonMin + lonMax) / 2;
+        }
+        let localExtents = null;
+        for (let iteration = 0; iteration < 10; iteration += 1) {
+            const matrices = this.buildGeoMatrix(latMid, lonMid, radius);
+            const localNodes = worldNodes.map((node) => transformPoint(matrices.inverse, node));
+            const xValues = localNodes.map((node) => node.x);
+            const yValues = localNodes.map((node) => node.y);
+            const zValues = localNodes.map((node) => node.z);
+            const xMin = Math.min(...xValues);
+            const xMax = Math.max(...xValues);
+            const yMin = Math.min(...yValues);
+            const yMax = Math.max(...yValues);
+            const zMin = Math.min(...zValues);
+            const zMax = Math.max(...zValues);
+            const xMid = (xMin + xMax) / 2;
+            const zMid = (zMin + zMax) / 2;
+            localExtents = { xMin, xMax, yMin, yMax, zMin, zMax };
+            if (Math.abs(xMid) <= 0.000001 && Math.abs(zMid) <= 0.000001) {
+                break;
+            }
+            const adjustedLocal = { x: xMid * 0.97, y: 0, z: zMid * 0.97 };
+            const worldOffset = transformPoint(matrices.forward, adjustedLocal);
+            const ySign = worldOffset.y < 0 ? -1 : 1;
+            const projectedY = Math.sqrt(Math.max(0, (radius * radius) - (worldOffset.x * worldOffset.x) - (worldOffset.z * worldOffset.z))) * ySign;
+            const nextGeo = worldCoordsToLatLon({ x: worldOffset.x, y: projectedY, z: worldOffset.z }, radius);
+            latMid = nextGeo.latitude;
+            lonMid = nextGeo.longitude;
+        }
+        const rawDiameterKm = Math.max(localExtents.xMax - localExtents.xMin, localExtents.zMax - localExtents.zMin) / 1000;
+        const rule = this.getSectorSubtypeRule(rawDiameterKm);
+        const halfX = (localExtents.xMax - localExtents.xMin) / 2;
+        const halfZ = (localExtents.zMax - localExtents.zMin) / 2;
+        const bounds = computeSectorBounds(halfX, halfZ, rule.height, rule.depth, radius);
+        return {
+            latitude: latMid,
+            longitude: lonMid,
+            radius: bounds.adjustedRadius,
+            boundX: bounds.boundX,
+            boundY: bounds.boundY,
+            boundZ: bounds.boundZ,
+            containmentBound: { x: halfX, y: rule.height, z: halfZ },
+            height: rule.height,
+            depth: rule.depth,
+            sectorSubtype: rule.subtype,
+        };
+    }
+    async resolveTerrestrialRootObjectId() {
+        await this.ensureConnected();
+        if (this.pRMRoot?.wClass_Object === ClassIds.RMTObject &&
+            this.pRMRoot?.pType?.bType === ObjectTypeMap['terrestrial:root'].type) {
+            return this.getPrefixedId(this.pRMRoot);
+        }
+        const scenes = await this.listScenes();
+        for (const scene of scenes) {
+            if (scene.classId !== ClassIds.RMTObject) {
+                continue;
+            }
+            const obj = await this.getObject(scene.id);
+            if (obj.classId === ClassIds.RMTObject && obj.type === ObjectTypeMap['terrestrial:root'].type) {
+                return obj.id;
+            }
+        }
+        throw new Error('Unable to locate terrestrial:root in current scope');
+    }
+    async loadPathWithWorldPositions(object, ancestry) {
+        const ancestors = [...(ancestry ?? [])].sort((a, b) => (b.ancestorDepth ?? 0) - (a.ancestorDepth ?? 0));
+        const chain = [];
+        for (const ancestor of ancestors) {
+            const loaded = await this.getObject(ancestor.objectId);
+            chain.push({ object: loaded, worldMatrix: null, inverseWorldMatrix: null });
+        }
+        chain.push({ object, worldMatrix: null, inverseWorldMatrix: null });
+        while (chain[0]?.object?.parentId && chain[0].object.parentId !== 'root') {
+            const parent = await this.getObject(chain[0].object.parentId);
+            chain.unshift({ object: parent, worldMatrix: null, inverseWorldMatrix: null });
+        }
+        for (let index = 0; index < chain.length; index += 1) {
+            const current = chain[index];
+            const relativeMatrix = objectToRelativeMatrix(current.object);
+            if (index === 0) {
+                current.worldMatrix = relativeMatrix;
+            }
+            else {
+                current.worldMatrix = multiplyMatrices(chain[index - 1].worldMatrix, relativeMatrix);
+            }
+            current.inverseWorldMatrix = invertMatrix(current.worldMatrix);
+        }
+        return chain;
+    }
+    disambiguateSearchResults(results, names = {}) {
+        if (results.length <= 1) {
+            return results[0] ?? null;
+        }
+        const scored = results.map((result, index) => {
+            const nodes = [result.object, ...(result.ancestry ?? [])];
+            let score = 0;
+            for (const field of TERRESTRIAL_GEO_FIELDS) {
+                const expectedName = names[field];
+                if (!expectedName) {
+                    continue;
+                }
+                const expectedType = ObjectTypeMap[`terrestrial:${field}`]?.type;
+                const match = nodes.some((node) => node.classId === ClassIds.RMTObject &&
+                    node.type === expectedType &&
+                    node.name.toLowerCase() === expectedName.toLowerCase());
+                if (match) {
+                    score += 1;
+                }
+            }
+            return { result, score, index };
+        });
+        scored.sort((a, b) => {
+            if (b.score !== a.score) {
+                return b.score - a.score;
+            }
+            const aDistance = a.result.arcDistance ?? Number.POSITIVE_INFINITY;
+            const bDistance = b.result.arcDistance ?? Number.POSITIVE_INFINITY;
+            if (aDistance !== bDistance) {
+                return aDistance - bDistance;
+            }
+            return a.index - b.index;
+        });
+        return scored[0]?.result ?? null;
+    }
+    filterSearchResultsByExactName(results, searchText) {
+        const expectedName = normalizeSearchName(searchText);
+        if (!expectedName) {
+            return results;
+        }
+        const exactMatches = results.filter((result) => normalizeSearchName(result?.object?.name) === expectedName);
+        return exactMatches.length > 0 ? exactMatches : results;
+    }
+    async collectCandidateParents(path, lowestContainingIndex, campusWorldPos, campusBound) {
+        const candidates = [];
+        const lowestContaining = path[lowestContainingIndex];
+        const parentEntry = lowestContainingIndex > 0 ? path[lowestContainingIndex - 1] : null;
+        if (parentEntry) {
+            const refreshedParent = await this.getObject(parentEntry.object.id);
+            const pCached = this.objectCache.get(parentEntry.object.id) ?? this.objectCache.get(refreshedParent.id);
+            this.enumAllChildTypes(pCached, (child) => {
+                const childObj = this.rmxToFabricObject(child);
+                const { inverseWorldMatrix } = computeChildMatrices(childObj, parentEntry.worldMatrix);
+                const localPoint = transformPoint(inverseWorldMatrix, campusWorldPos);
+                if (pointInLocalBounds(localPoint, childObj.bound) && hasCampusSize(childObj.bound, campusBound)) {
+                    candidates.push(childObj);
+                }
+            });
+            if (hasCampusSize(refreshedParent.bound, campusBound)) {
+                candidates.push(refreshedParent);
+            }
+        }
+        else {
+            const localPoint = transformPoint(lowestContaining.inverseWorldMatrix, campusWorldPos);
+            if (pointInLocalBounds(localPoint, lowestContaining.object.bound)
+                && hasCampusSize(lowestContaining.object.bound, campusBound)) {
+                candidates.push(lowestContaining.object);
+            }
+        }
+        candidates.sort((a, b) => getBoundArea(a.bound) - getBoundArea(b.bound));
+        return [...new Map(candidates.map((candidate) => [candidate.id, candidate])).values()];
+    }
+    async walkDownToSmallestContainingNode(startEntry, campusWorldPos, campusBound, preferredPathOrder = new Map()) {
+        let current = startEntry;
+        while (true) {
+            const refreshedCurrent = await this.getObject(current.object.id);
+            const childEntries = [];
+            this.enumAllChildTypes(this.objectCache.get(current.object.id) ?? this.objectCache.get(refreshedCurrent.id), (child) => {
+                const childObj = this.rmxToFabricObject(child);
+                const childMatrices = computeChildMatrices(childObj, current.worldMatrix);
+                const localPoint = transformPoint(childMatrices.inverseWorldMatrix, campusWorldPos);
+                if (campusFitsInLocalBounds(localPoint, campusBound, childObj.bound)) {
+                    childEntries.push({ object: childObj, worldMatrix: childMatrices.worldMatrix, inverseWorldMatrix: childMatrices.inverseWorldMatrix });
+                }
+            });
+            if (childEntries.length === 0) {
+                return refreshedCurrent;
+            }
+            sortContainingEntriesBySurfaceDistance(childEntries, campusWorldPos, preferredPathOrder);
+            current = childEntries[0];
+        }
+    }
+    async walkDownFromStructuralRoot(startEntry, campusWorldPos, campusBound, preferredPathOrder = new Map()) {
+        let current = startEntry;
+        const startLocalPoint = transformPoint(current.inverseWorldMatrix, campusWorldPos);
+        let currentFitsCampus = campusFitsInLocalBounds(startLocalPoint, campusBound, current.object.bound);
+        while (true) {
+            const refreshedCurrent = await this.getObject(current.object.id);
+            const pCached = this.objectCache.get(current.object.id) ?? this.objectCache.get(refreshedCurrent.id);
+            const pointContaining = [];
+            const exactFits = [];
+            this.enumAllChildTypes(pCached, (child) => {
+                const childObj = this.rmxToFabricObject(child);
+                const childMatrices = computeChildMatrices(childObj, current.worldMatrix);
+                const localPoint = transformPoint(childMatrices.inverseWorldMatrix, campusWorldPos);
+                if (!pointInLocalBounds(localPoint, childObj.bound)) {
+                    return;
+                }
+                const entry = { object: childObj, worldMatrix: childMatrices.worldMatrix, inverseWorldMatrix: childMatrices.inverseWorldMatrix };
+                pointContaining.push(entry);
+                if (campusFitsInLocalBounds(localPoint, campusBound, childObj.bound)) {
+                    exactFits.push(entry);
+                }
+            });
+            if (exactFits.length > 0) {
+                sortContainingEntriesBySurfaceDistance(exactFits, campusWorldPos, preferredPathOrder);
+                current = exactFits[0];
+                currentFitsCampus = true;
+                continue;
+            }
+            if (currentFitsCampus) {
+                return { parent: refreshedCurrent, candidates: [] };
+            }
+            if (pointContaining.length === 0) {
+                throw new Error('No ancestor contains the target point');
+            }
+            const candidates = pointContaining
+                .filter((entry) => hasCampusSize(entry.object.bound, campusBound));
+            sortContainingEntriesBySurfaceDistance(candidates, campusWorldPos, preferredPathOrder);
+            if (candidates.length > 0) {
+                return {
+                    parent: null,
+                    candidates: [...new Map(candidates.map((entry) => [entry.object.id, entry.object])).values()],
+                };
+            }
+            throw new Error('No ancestor has bounds large enough for the campus');
+        }
+    }
+    async findSmallestContainingNode(startObject, ancestry, campusWorldPos, campusBound, preferredPathIds = []) {
+        const path = await this.loadPathWithWorldPositions(startObject, ancestry);
+        const preferredPathOrder = new Map(preferredPathIds.map((objectId, index) => [objectId, index]));
+        let exactFitIndex = -1;
+        let lowestContainingIndex = -1;
+        for (let index = path.length - 1; index >= 0; index -= 1) {
+            const entry = path[index];
+            const localPoint = transformPoint(entry.inverseWorldMatrix, campusWorldPos);
+            if (pointInLocalBounds(localPoint, entry.object.bound)) {
+                if (lowestContainingIndex === -1) {
+                    lowestContainingIndex = index;
+                }
+                if (exactFitIndex === -1 && campusFitsInLocalBounds(localPoint, campusBound, entry.object.bound)) {
+                    exactFitIndex = index;
+                }
+            }
+        }
+        if (exactFitIndex !== -1) {
+            const smallest = await this.walkDownToSmallestContainingNode(path[exactFitIndex], campusWorldPos, campusBound, preferredPathOrder);
+            return { parent: smallest, candidates: [] };
+        }
+        if (lowestContainingIndex === -1) {
+            if (path.length === 1 && startObject.parentId === 'root') {
+                return this.walkDownFromStructuralRoot(path[0], campusWorldPos, campusBound, preferredPathOrder);
+            }
+            throw new Error('No ancestor contains the target point');
+        }
+        const candidates = await this.collectCandidateParents(path, lowestContainingIndex, campusWorldPos, campusBound);
+        if (candidates.length === 0) {
+            throw new Error('No ancestor has bounds large enough for the campus');
+        }
+        return { parent: null, candidates };
+    }
     /**
-     * @param {string} scopeId
+     * @param {string | undefined} anchorObjectId
+     * @param {FindEarthAttachmentParentParams} params
+     * @returns {Promise<EarthAttachmentParentResult>}
+     */
+    async findEarthAttachmentParent(anchorObjectId, params) {
+        await this.ensureConnected();
+        const anchorId = anchorObjectId ?? await this.resolveTerrestrialRootObjectId();
+        const geometry = this.computeCampusGeometry(params, EARTH_RADIUS_METERS);
+        const providedNames = {
+            city: params.city,
+            community: params.community,
+            county: params.county,
+            state: params.state,
+            country: params.country,
+        };
+        const reverseGeocode = await this.reverseGeocode(geometry.latitude, geometry.longitude);
+        const geocode = mergeResolvedGeocode(reverseGeocode, providedNames);
+        const worldCoords = this.latLonToWorldCoords(geometry.latitude, geometry.longitude, EARTH_RADIUS_METERS);
+        const searchText = geocode.community || geocode.city || geocode.county || geocode.state || geocode.country;
+        let preferredPathIds = [];
+        let selectedResult = null;
+        if (searchText) {
+            const searchResults = await this.serverSearch(anchorId, {
+                namePattern: searchText,
+                positionRadius: { center: worldCoords, radius: 0 },
+            }, { includeAncestry: true });
+            if (searchResults.length > 0) {
+                const narrowedResults = this.filterSearchResultsByExactName(searchResults, searchText);
+                selectedResult = this.disambiguateSearchResults(narrowedResults, geocode);
+                preferredPathIds = buildPreferredPathIds(selectedResult);
+            }
+        }
+        const rootObject = await this.getObject(anchorId);
+        const startObject = selectedResult?.object ? await this.getObject(selectedResult.object.id) : rootObject;
+        const resolution = await this.findSmallestContainingNode(startObject, selectedResult?.ancestry ?? [], worldCoords, geometry.containmentBound, preferredPathIds);
+        return {
+            parent: resolution.parent ? toAttachmentParentInfo(resolution.parent) : null,
+            candidates: resolution.parent ? undefined : resolution.candidates.map((candidate) => toAttachmentParentInfo(candidate)),
+            sectorSubtype: geometry.sectorSubtype,
+            attachment: {
+                latitude: geometry.latitude,
+                longitude: geometry.longitude,
+                radius: geometry.radius,
+                boundX: geometry.boundX,
+                boundY: geometry.boundY,
+                boundZ: geometry.boundZ,
+                height: geometry.height,
+                depth: geometry.depth,
+            },
+            geocode,
+        };
+    }
+    /**
+     * @param {string | undefined} anchorObjectId
      * @param {SearchQuery} query
      * @returns {Promise<FabricObject[]>}
      */
-    async findObjects(scopeId, query) {
+    async findObjects(anchorObjectId, query) {
         await this.ensureConnected();
         if (query.namePattern) {
-            return this.serverSearch(scopeId, query);
+            return this.serverSearch(anchorObjectId, query);
         }
-        const allObjects = await this.loadFullTree(scopeId);
+        const resolvedAnchorId = anchorObjectId ?? await this.resolveTerrestrialRootObjectId();
+        const allObjects = await this.loadFullTree(resolvedAnchorId);
         return allObjects.filter(obj => {
             if (query.resourceUrl && obj.resourceReference !== query.resourceUrl)
                 return false;
@@ -2030,12 +2813,13 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             return true;
         });
     }
-    async serverSearch(scopeId, query) {
-        let pScene = this.objectCache.get(scopeId);
+    async serverSearch(anchorObjectId, query, options = {}) {
+        const resolvedAnchorId = anchorObjectId ?? await this.resolveTerrestrialRootObjectId();
+        let pScene = this.objectCache.get(resolvedAnchorId);
         if (!pScene) {
-            const { classId, numericId } = parseObjectRef(scopeId);
+            const { classId, numericId } = parseObjectRef(resolvedAnchorId);
             pScene = await this.openWithKnownType(numericId, classId);
-            this.objectCache.set(scopeId, pScene);
+            this.objectCache.set(resolvedAnchorId, pScene);
         }
         const response = await this.sendAction(pScene, 'SEARCH', (p) => {
             if (pScene.sID === 'RMCObject') {
@@ -2057,7 +2841,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         }
         const results = [];
         const resultSet = response.aResultSet?.[0] || [];
-        for (const item of resultSet) {
+        const ancestryByOrder = buildAncestorMap(response.aResultSet?.[1] || []);
+        for (let index = 0; index < resultSet.length; index += 1) {
+            const item = resultSet[index];
             const objectIx = item.ObjectHead_twObjectIx;
             const classId = item.ObjectHead_wClass_Object;
             if (!objectIx || !classId)
@@ -2065,7 +2851,16 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             const resultObjectId = formatObjectRef(classId, objectIx);
             try {
                 const obj = await this.getObject(resultObjectId);
-                results.push(obj);
+                if (options.includeAncestry) {
+                    results.push({
+                        object: obj,
+                        ancestry: ancestryByOrder.get(item.nOrder ?? index) ?? ancestryByOrder.get(index) ?? [],
+                        arcDistance: item.dArc ?? item.dArcLength ?? item.ArcLength ?? null,
+                    });
+                }
+                else {
+                    results.push(obj);
+                }
             }
             catch {
                 // Skip objects we can't open
@@ -2775,6 +3570,9 @@ export class ManifolderClient {
         const objects = await this._requireScopeRuntime(scopeId).findObjects(anchorObjectId, query);
         return objects.map((obj) => this._enrichObjectWithScope(scopeId, obj));
     }
+    async findEarthAttachmentParent({ scopeId, anchorObjectId, ...params }) {
+        return this._requireScopeRuntime(scopeId).findEarthAttachmentParent(anchorObjectId, params);
+    }
     async followAttachment({ scopeId, objectId, autoOpenRoot = true }) {
         const parentRuntime = this._requireScopeRuntime(scopeId);
         let attachmentObject;
@@ -2908,6 +3706,7 @@ const PROMISE_ONLY_METHODS = /** @type {const} */ ([
     'moveObject',
     'bulkUpdate',
     'findObjects',
+    'findEarthAttachmentParent',
 ]);
 const SUBSCRIPTION_CLIENT_METHODS = /** @type {const} */ ([
     ...COMMON_CLIENT_METHODS,
