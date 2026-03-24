@@ -572,6 +572,7 @@ test('interface surfaces invoke all contract methods with bound client context',
   await promiseClient.moveObject({ scopeId: 'fs1_scope', objectId: 'physical:1', newParentId: 'physical:2' });
   await promiseClient.bulkUpdate({ scopeId: 'fs1_scope', operations: [] });
   await promiseClient.findObjects({ scopeId: 'fs1_scope', anchorObjectId: 'physical:1', query: { namePattern: 'x' } });
+  await promiseClient.findEarthAttachmentParent({ scopeId: 'fs1_scope', lat: 28, lon: -81, boundX: 2500, boundZ: 2500 });
 
   const methodNamesSeen = new Set(called.map((entry) => entry.methodName));
   for (const methodName of allMethods) {
@@ -1610,6 +1611,39 @@ test('reverseGeocode parses Nominatim responses and returns null on failures', a
   }
 });
 
+test('promiseTimeoutMs controls waitForReady timeout', async () => {
+  const client = new SingleScopeClient();
+  client.promiseTimeoutMs = 50;
+
+  // Create a mock object that is never ready
+  const mockObject = {
+    IsReady: () => false,
+    ReadyState: () => 0,
+    eSTATE: { ERROR: -1 },
+    sID: 'RMTObject',
+    wClass_Object: 72,
+    twObjectIx: 999,
+  };
+
+  const start = Date.now();
+  await assert.rejects(
+    () => client.waitForReady(mockObject),
+    (err) => err.message.includes('Timeout waiting for object to be ready')
+  );
+  const elapsed = Date.now() - start;
+
+  assert.ok(elapsed >= 40, `should wait at least 40ms, got ${elapsed}ms`);
+  assert.ok(elapsed < 200, `should not wait more than 200ms, got ${elapsed}ms`);
+});
+
+test('promiseTimeoutMs propagates through createManifolderPromiseClient', () => {
+  const client = createManifolderPromiseClient({ promiseTimeoutMs: 42 });
+  assert.equal(client.promiseTimeoutMs, 42);
+
+  client.promiseTimeoutMs = 99;
+  assert.equal(client.promiseTimeoutMs, 99);
+});
+
 test('getSectorSubtypeRule maps diameter thresholds to the correct subtype and bounds profile', () => {
   const client = new SingleScopeClient();
   assert.deepEqual(client.getSectorSubtypeRule(50), { minDiameterKm: 50, subtype: 0, height: 1000, depth: 1000 });
@@ -1619,7 +1653,7 @@ test('getSectorSubtypeRule maps diameter thresholds to the correct subtype and b
   assert.throws(() => client.getSectorSubtypeRule(0.09), /Diameter must be at least 0.1 km/);
 });
 
-test('pointInLocalBounds and campusFitsInLocalBounds apply local-frame containment', () => {
+test('pointInLocalBounds and campusFitsInLocalBounds apply local-frame containment', async () => {
   const { pointInLocalBounds, campusFitsInLocalBounds } = await import('./ManifolderClient.js');
   const nodeBound = { x: 10, y: 5, z: 8 };
 
@@ -1736,6 +1770,8 @@ test('findEarthAttachmentParent treats provided names as search hints rather tha
   ]);
 
   client.ensureConnected = async () => {};
+  client.enumAllChildTypes = () => {};
+  client.objectCache = new Map();
   client.resolveTerrestrialRootObjectId = async () => earth.id;
   client.computeCampusGeometry = () => ({
     latitude: 39.7525,
@@ -1747,7 +1783,7 @@ test('findEarthAttachmentParent treats provided names as search hints rather tha
     height: 750,
     depth: 750,
     sectorSubtype: 1,
-    sectorSubtype: 1,
+    containmentBound: { x: 2500, y: 750, z: 2500 },
   });
   client.reverseGeocode = async () => ({
     city: 'Southern View',
@@ -1825,6 +1861,18 @@ test('findEarthAttachmentParent falls back to the last exact-fit ancestor when n
   ]);
 
   client.ensureConnected = async () => {};
+  const childrenByParent = new Map([
+    [earth.id, [northAmerica]],
+    [northAmerica.id, [unitedStates]],
+    [unitedStates.id, []],
+  ]);
+  client.enumAllChildTypes = (pObj, cb) => {
+    const id = client.getPrefixedId?.(pObj) ?? pObj?.id;
+    for (const child of childrenByParent.get(id) ?? []) { cb(child); }
+  };
+  client.rmxToFabricObject = (obj) => obj;
+  client.getPrefixedId = (obj) => obj?.id;
+  client.objectCache = new Map(loadedById);
   client.resolveTerrestrialRootObjectId = async () => earth.id;
   client.computeCampusGeometry = () => ({
     latitude: 28.3772,
@@ -1836,7 +1884,7 @@ test('findEarthAttachmentParent falls back to the last exact-fit ancestor when n
     height: 750,
     depth: 750,
     sectorSubtype: 1,
-    sectorSubtype: 1,
+    containmentBound: { x: 2500, y: 750, z: 2500 },
   });
   client.reverseGeocode = async () => ({
     county: 'Orange County',
@@ -1920,8 +1968,13 @@ test('findEarthAttachmentParent backfills missing higher-level names from revers
     transform: { position: { x: 0, y: 0, z: 0 } },
     children: [],
   };
+  const us = {
+    id: 'terrestrial:us', parentId: earth.id, name: 'United States', classId: 72, type: 4, subtype: 0,
+    bound: { x: 50000, y: 10000, z: 50000 }, transform: { position: { x: 0, y: 0, z: 6371000 } }, children: [],
+  };
   const loadedById = new Map([
     [earth.id, earth],
+    [us.id, us],
     [illinois.id, illinois],
     [ohio.id, ohio],
     [illinoisSpringfield.id, illinoisSpringfield],
@@ -1929,6 +1982,20 @@ test('findEarthAttachmentParent backfills missing higher-level names from revers
   ]);
 
   client.ensureConnected = async () => {};
+  const childrenByParent70 = new Map([
+    [earth.id, [illinois, ohio]],
+    [illinois.id, [illinoisSpringfield]],
+    [ohio.id, [ohioSpringfield]],
+    [illinoisSpringfield.id, []],
+    [ohioSpringfield.id, []],
+  ]);
+  client.enumAllChildTypes = (pObj, cb) => {
+    const id = client.getPrefixedId?.(pObj) ?? pObj?.id;
+    for (const child of childrenByParent70.get(id) ?? []) { cb(child); }
+  };
+  client.rmxToFabricObject = (obj) => obj;
+  client.getPrefixedId = (obj) => obj?.id;
+  client.objectCache = new Map(loadedById);
   client.resolveTerrestrialRootObjectId = async () => earth.id;
   client.computeCampusGeometry = () => ({
     latitude: 39.7982,
@@ -1940,7 +2007,7 @@ test('findEarthAttachmentParent backfills missing higher-level names from revers
     height: 750,
     depth: 750,
     sectorSubtype: 1,
-    sectorSubtype: 1,
+    containmentBound: { x: 2500, y: 750, z: 2500 },
   });
   client.reverseGeocode = async () => ({
     city: 'Springfield',

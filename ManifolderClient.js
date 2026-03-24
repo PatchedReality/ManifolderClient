@@ -382,12 +382,8 @@ function toAttachmentParentInfo(object) {
 function normalizeSearchName(value) {
     return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
-function mergeResolvedGeocode(reverseGeocode, providedNames) {
-    const filtered = Object.fromEntries(Object.entries(providedNames ?? {}).filter(([, value]) => value));
-    return {
-        ...(reverseGeocode ?? {}),
-        ...filtered,
-    };
+function mergeResolvedGeocode(reverseGeocode) {
+    return reverseGeocode ?? {};
 }
 function buildPreferredPathIds(result) {
     const sortedAncestors = [...(result?.ancestry ?? [])]
@@ -596,7 +592,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
     rootReadyEmitted = false;
     pendingMutationWaits = new Set();
     recentMutationEvents = [];
-    mutationConfirmTimeoutMs = 5000;
+    promiseTimeoutMs = 5000;
     isDisconnecting = false;
     bootstrapRequireHandle = null;
     IsReady() {
@@ -690,7 +686,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             }
         }
     }
-    _createMutationWait(matchFn, description, timeoutMs = this.mutationConfirmTimeoutMs, minTimestamp = 0) {
+    _createMutationWait(matchFn, description, timeoutMs = this.promiseTimeoutMs, minTimestamp = 0) {
         const findRecentMatch = () => {
             for (let i = this.recentMutationEvents.length - 1; i >= 0; i -= 1) {
                 const event = this.recentMutationEvents[i];
@@ -744,7 +740,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         };
         return { promise, cancel };
     }
-    async _confirmMutation(matchFn, description, timeoutMs = this.mutationConfirmTimeoutMs, minTimestamp = 0) {
+    async _confirmMutation(matchFn, description, timeoutMs = this.promiseTimeoutMs, minTimestamp = 0) {
         const wait = this._createMutationWait(matchFn, description, timeoutMs, minTimestamp);
         try {
             await wait.promise;
@@ -753,7 +749,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             wait.cancel();
         }
     }
-    waitForReady(pObject, timeoutMs = 5000) {
+    waitForReady(pObject, timeoutMs = this.promiseTimeoutMs) {
         if (pObject.IsReady()) {
             return Promise.resolve();
         }
@@ -2404,8 +2400,8 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         if (hasNodes && (typeof params.boundX === 'number' || typeof params.boundZ === 'number')) {
             throw new Error('Provide either nodes or boundX/boundZ, not both');
         }
-        if (hasNodes && params.nodes.length < 4) {
-            throw new Error('nodes must include at least 4 entries');
+        if (hasNodes && params.nodes.length < 2) {
+            throw new Error('nodes must include at least 2 entries');
         }
         const validateLatLon = (lat, lon) => {
             if (lat < -90 || lat > 90) {
@@ -2752,7 +2748,8 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         const reverseGeocode = await this.reverseGeocode(geometry.latitude, geometry.longitude);
         const geocode = mergeResolvedGeocode(reverseGeocode, providedNames);
         const worldCoords = this.latLonToWorldCoords(geometry.latitude, geometry.longitude, EARTH_RADIUS_METERS);
-        const searchText = geocode.community || geocode.city || geocode.county || geocode.state || geocode.country;
+        const searchText = providedNames.community || providedNames.city || providedNames.county || providedNames.state || providedNames.country
+            || geocode.community || geocode.city || geocode.county || geocode.state || geocode.country;
         let preferredPathIds = [];
         let selectedResult = null;
         if (searchText) {
@@ -3083,6 +3080,8 @@ function getBulkOperationInvalidationIds(operations) {
     return ids.filter((value) => typeof value === 'string' && value.length > 0);
 }
 export class ManifolderClient {
+    /** @type {number|undefined} */
+    promiseTimeoutMs;
     /** @type {Map<FabricScopeId, ScopeInfo>} */
     scopeRegistry = new Map();
     scopeRuntimes = new Map();
@@ -3202,7 +3201,11 @@ export class ManifolderClient {
      * @returns {SingleScopeClient}
      */
     _createScopeRuntime() {
-        return new SingleScopeClient();
+        const runtime = new SingleScopeClient();
+        if (this.promiseTimeoutMs != null) {
+            runtime.promiseTimeoutMs = this.promiseTimeoutMs;
+        }
+        return runtime;
     }
     /**
      * @param {FabricScopeId} scopeId
@@ -3742,6 +3745,16 @@ function createClientView(client, methodNames) {
         enumerable: true,
         get: () => client.connected,
     });
+    Object.defineProperty(view, 'promiseTimeoutMs', {
+        enumerable: true,
+        get: () => client.promiseTimeoutMs,
+        set: (value) => {
+            client.promiseTimeoutMs = value;
+            for (const runtime of client.scopeRuntimes.values()) {
+                runtime.promiseTimeoutMs = value;
+            }
+        },
+    });
     for (const methodName of methodNames) {
         view[methodName] = client[methodName].bind(client);
     }
@@ -3770,6 +3783,10 @@ export function createManifolderSubscriptionClient() {
 /**
  * @returns {IManifolderPromiseClient}
  */
-export function createManifolderPromiseClient() {
-    return asManifolderPromiseClient(new ManifolderClient());
+export function createManifolderPromiseClient(options = {}) {
+    const client = new ManifolderClient();
+    if (typeof options.promiseTimeoutMs === 'number') {
+        client.promiseTimeoutMs = options.promiseTimeoutMs;
+    }
+    return asManifolderPromiseClient(client);
 }
