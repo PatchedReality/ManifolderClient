@@ -720,7 +720,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 if (wait) {
                     this.pendingMutationWaits.delete(wait);
                 }
-                reject(new Error(`Timeout waiting for mutation notification: ${description}`));
+                const err = new Error(`Timeout waiting for mutation notification: ${description}`);
+                err.code = 'MUTATION_TIMEOUT';
+                reject(err);
             }, timeoutMs);
             wait = { matchFn, resolve, reject, timeoutId, minTimestamp };
             this.pendingMutationWaits.add(wait);
@@ -740,10 +742,18 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         };
         return { promise, cancel };
     }
-    async _confirmMutation(matchFn, description, timeoutMs = this.promiseTimeoutMs, minTimestamp = 0) {
+    async _confirmMutation(matchFn, description, timeoutMs = this.promiseTimeoutMs, minTimestamp = 0, tolerateTimeout = false) {
         const wait = this._createMutationWait(matchFn, description, timeoutMs, minTimestamp);
         try {
             await wait.promise;
+            return { confirmed: true };
+        }
+        catch (err) {
+            if (tolerateTimeout && err.code === 'MUTATION_TIMEOUT') {
+                debugLog(`[_confirmMutation] timeout tolerated for: ${description}`);
+                return { confirmed: false, timeout: true };
+            }
+            throw err;
         }
         finally {
             wait.cancel();
@@ -1815,7 +1825,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         const newId = numericNewId != null
             ? formatObjectRef(childClassId, numericNewId)
             : `${formatObjectRef(childClassId, Date.now())}`;
-        await this._confirmMutation((event) => {
+        const confirmResult = await this._confirmMutation((event) => {
             if (event.kind !== 'inserted' || event.childClassId !== childClassId) {
                 return false;
             }
@@ -1830,7 +1840,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             }
             return event.parentClassId === pParent.wClass_Object &&
                 event.parentObjectId === pParent.twObjectIx;
-        }, `create object ${params.name}`, undefined, startedAt);
+        }, `create object ${params.name}`, params.mutationTimeoutMs ?? undefined, startedAt, params.tolerateTimeout ?? false);
         return {
             id: newId,
             parentId: params.parentId,
@@ -1850,6 +1860,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             children: null,
             orbit: isCelestial ? params.orbit ?? undefined : undefined,
             properties: isCelestial ? params.properties ?? undefined : undefined,
+            confirmed: confirmResult.confirmed,
         };
     }
     /**
@@ -2202,14 +2213,20 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
     }
     /**
      * @param {BulkOperation[]} operations
-     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[] }>}
+     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[]; results: Array<{status: 'ok', id?: string, confirmed?: boolean} | {status: 'error', message: string}> }>}
      */
     async bulkUpdate(operations) {
         let success = 0;
         let failed = 0;
         const createdIds = [];
         const errors = [];
+        const results = [];
         const CONCURRENCY = 10;
+        // Scale mutation timeout based on batch size to avoid false timeouts
+        // under load. Each wave of CONCURRENCY ops adds 500ms, capped at +30s.
+        const waves = Math.ceil(operations.length / CONCURRENCY);
+        const scaledTimeoutMs = this.promiseTimeoutMs + Math.min(waves * 500, 30000);
+        debugLog(`[bulkUpdate] scaled timeout: ${this.promiseTimeoutMs}ms -> ${scaledTimeoutMs}ms for ${operations.length} ops (${waves} waves)`);
         // Pre-fetch all referenced objects so concurrent ops don't race
         const idsToPreload = new Set();
         for (const op of operations) {
@@ -2265,8 +2282,8 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             switch (op.type) {
                 case 'create': {
                     const createParams = op.params;
-                    const obj = await this.createObject({ ...createParams, skipParentRefetch: true });
-                    return obj.id;
+                    const obj = await this.createObject({ ...createParams, skipParentRefetch: true, tolerateTimeout: true, mutationTimeoutMs: scaledTimeoutMs });
+                    return { id: obj.id, confirmed: obj.confirmed };
                 }
                 case 'update':
                     await this.updateObject({ ...op.params, skipRefetch: true });
@@ -2290,21 +2307,28 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         // Process all ops concurrently in batches
         for (let i = 0; i < operations.length; i += CONCURRENCY) {
             const batch = operations.slice(i, i + CONCURRENCY);
-            const results = await Promise.allSettled(batch.map(op => executeOp(op)));
-            for (let j = 0; j < results.length; j++) {
-                const result = results[j];
+            const settled = await Promise.allSettled(batch.map(op => executeOp(op)));
+            for (let j = 0; j < settled.length; j++) {
+                const result = settled[j];
                 if (result.status === 'fulfilled') {
                     success++;
-                    if (result.value)
-                        createdIds.push(result.value);
+                    if (result.value?.id) {
+                        createdIds.push(result.value.id);
+                        results.push({ status: 'ok', id: result.value.id, confirmed: result.value.confirmed });
+                    }
+                    else {
+                        results.push({ status: 'ok' });
+                    }
                 }
                 else {
                     failed++;
-                    errors.push(`${batch[j].type} failed: ${result.reason?.message || 'unknown error'}`);
+                    const message = `${batch[j].type} failed: ${result.reason?.message || 'unknown error'}`;
+                    errors.push(message);
+                    results.push({ status: 'error', message });
                 }
             }
         }
-        return { success, failed, createdIds, errors };
+        return { success, failed, createdIds, errors, results };
     }
     async loadFullTree(scopeId) {
         if (!this.objectCache.has(scopeId)) {

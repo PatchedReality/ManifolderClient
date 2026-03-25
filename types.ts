@@ -195,6 +195,8 @@ export interface FabricObject {
   children: string[] | null;
   orbit?: Orbit | null;
   properties?: CelestialProperties | null;
+  /** Whether the mutation was confirmed via notification. Undefined for non-create operations. */
+  confirmed?: boolean;
 }
 
 export interface Scene {
@@ -293,6 +295,10 @@ export interface CreateObjectParams {
   orbit?: Orbit;
   properties?: CelestialProperties;
   skipParentRefetch?: boolean;
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
 }
 
 export interface UpdateObjectParams {

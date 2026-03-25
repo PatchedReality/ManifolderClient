@@ -266,13 +266,21 @@ export class SingleScopeClient {
     moveObject(objectId: string, newParentId: string, skipRefetch?: boolean): Promise<FabricObject>;
     /**
      * @param {BulkOperation[]} operations
-     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[] }>}
+     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[]; results: Array<{status: 'ok'; id?: string; confirmed?: boolean} | {status: 'error'; message: string}> }>}
      */
     bulkUpdate(operations: BulkOperation[]): Promise<{
         success: number;
         failed: number;
         createdIds: string[];
         errors: string[];
+        results: Array<{
+            status: 'ok';
+            id?: string;
+            confirmed?: boolean;
+        } | {
+            status: 'error';
+            message: string;
+        }>;
     }>;
     loadFullTree(scopeId: any): Promise<any[]>;
     latLonToWorldCoords(lat: any, lon: any, radius?: number): {
