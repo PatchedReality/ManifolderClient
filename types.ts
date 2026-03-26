@@ -299,6 +299,8 @@ export interface CreateObjectParams {
   tolerateTimeout?: boolean;
   /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
   mutationTimeoutMs?: number;
+  /** When true, skip _confirmMutation and return confirmed: false immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
 }
 
 export interface UpdateObjectParams {
@@ -320,6 +322,13 @@ export interface UpdateObjectParams {
 export interface BulkOperation {
   type: 'create' | 'update' | 'delete' | 'move';
   params: CreateObjectParams | UpdateObjectParams | { objectId: string } | { objectId: string; newParentId: string };
+}
+
+export interface BulkUpdateOptions {
+  /** Max concurrent operations. Default 10, min 1, max 100. */
+  concurrency?: number;
+  /** "await" waits for mutation confirmation; "optimistic" skips it. Default "await". */
+  confirmMode?: 'await' | 'optimistic';
 }
 
 export interface ConnectionStatus {

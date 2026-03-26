@@ -266,9 +266,10 @@ export class SingleScopeClient {
     moveObject(objectId: string, newParentId: string, skipRefetch?: boolean): Promise<FabricObject>;
     /**
      * @param {BulkOperation[]} operations
+     * @param {import("./types.js").BulkUpdateOptions} [options]
      * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[]; results: Array<{status: 'ok'; id?: string; confirmed?: boolean} | {status: 'error'; message: string}> }>}
      */
-    bulkUpdate(operations: BulkOperation[]): Promise<{
+    bulkUpdate(operations: BulkOperation[], options?: import("./types.js").BulkUpdateOptions): Promise<{
         success: number;
         failed: number;
         createdIds: string[];
@@ -586,9 +587,10 @@ export class ManifolderClient {
         newParentId: any;
         skipRefetch: any;
     }): Promise<import("./types.js").FabricObject>;
-    bulkUpdate({ scopeId, operations }: {
+    bulkUpdate({ scopeId, operations, options }: {
         scopeId: any;
         operations: any;
+        options?: import("./types.js").BulkUpdateOptions;
     }): Promise<{
         success: number;
         failed: number;
@@ -618,6 +620,7 @@ export class ManifolderClient {
     }>;
 }
 export type BulkOperation = import("./types.js").BulkOperation;
+export type BulkUpdateOptions = import("./types.js").BulkUpdateOptions;
 export type AttachmentParentInfo = import("./types.js").AttachmentParentInfo;
 export type ConnectionStatus = import("./types.js").ConnectionStatus;
 export type ConnectRootParams = import("./types.js").ConnectRootParams;
