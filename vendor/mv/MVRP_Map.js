@@ -14,7 +14,7 @@ require ('@metaversalcorp/mvrest');
 require ('@metaversalcorp/mvio');
 */
 
-MV.MVRP.Map = MV.Library ('MVRP_Map', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal RP1 Map', '0.23.13');
+MV.MVRP.Map = MV.Library ('MVRP_Map', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal RP1 Map', '0.24.8');
 
 MV.MVRP.Map.Class.RMCOMMON_TYPE = class extends MV.MVMF.Class.BASE
 {
@@ -870,6 +870,17 @@ MV.MVRP.Map.SB_RMTOBJECT.apAction =
                            })
                         ),
 
+   BOUND :              new MV.MVSB.SERVICE.CLIENT.ACTION
+                        (
+                           (8 | ((72) << 16)),
+                           new MV.MVSB.MAP
+                           ({
+                              twRMTObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
+                              abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
+                              pBound                           : MV.MVRP.Map.Class.RMCOMMON_BOUND_SB.MAP,
+                           })
+                        ),
+
    NAME :               new MV.MVSB.SERVICE.CLIENT.ACTION
                         (
                            (3 | ((72) << 16)),
@@ -881,17 +892,6 @@ MV.MVRP.Map.SB_RMTOBJECT.apAction =
                            })
                         ),
 
-   TYPE :               new MV.MVSB.SERVICE.CLIENT.ACTION
-                        (
-                           (4 | ((72) << 16)),
-                           new MV.MVSB.MAP
-                           ({
-                              twRMTObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
-                              abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-                              pType                            : MV.MVRP.Map.Class.RMCOMMON_TYPE_SB.MAP,
-                           })
-                        ),
-
    OWNER :              new MV.MVSB.SERVICE.CLIENT.ACTION
                         (
                            (5 | ((72) << 16)),
@@ -900,6 +900,17 @@ MV.MVRP.Map.SB_RMTOBJECT.apAction =
                               twRMTObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
                               abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
                               pOwner                           : MV.MVRP.Map.Class.RMCOMMON_OWNER_SB.MAP,
+                           })
+                        ),
+
+   PROPERTIES :         new MV.MVSB.SERVICE.CLIENT.ACTION
+                        (
+                           (9 | ((72) << 16)),
+                           new MV.MVSB.MAP
+                           ({
+                              twRMTObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
+                              abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
+                              pProperties                      : MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_SB.MAP,
                            })
                         ),
 
@@ -926,25 +937,14 @@ MV.MVRP.Map.SB_RMTOBJECT.apAction =
                            })
                         ),
 
-   BOUND :              new MV.MVSB.SERVICE.CLIENT.ACTION
+   TYPE :               new MV.MVSB.SERVICE.CLIENT.ACTION
                         (
-                           (8 | ((72) << 16)),
+                           (4 | ((72) << 16)),
                            new MV.MVSB.MAP
                            ({
                               twRMTObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
                               abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-                              pBound                           : MV.MVRP.Map.Class.RMCOMMON_BOUND_SB.MAP,
-                           })
-                        ),
-
-   PROPERTIES :         new MV.MVSB.SERVICE.CLIENT.ACTION
-                        (
-                           (9 | ((72) << 16)),
-                           new MV.MVSB.MAP
-                           ({
-                              twRMTObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
-                              abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-                              pProperties                      : MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_SB.MAP,
+                              pType                            : MV.MVRP.Map.Class.RMCOMMON_TYPE_SB.MAP,
                            })
                         ),
 
@@ -1079,6 +1079,17 @@ MV.MVRP.Map.SB_RMPOBJECT.apAction =
                         })
                      ),
 
+   BOUND :           new MV.MVSB.SERVICE.CLIENT.ACTION
+                     (
+                        (8 | ((73) << 16)),
+                        new MV.MVSB.MAP
+                        ({
+                           twRMPObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
+                           abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
+                           pBound                           : MV.MVRP.Map.Class.RMCOMMON_BOUND_SB.MAP,
+                        })
+                     ),
+
    NAME :            new MV.MVSB.SERVICE.CLIENT.ACTION
                      (
                         (3 | ((73) << 16)),
@@ -1087,17 +1098,6 @@ MV.MVRP.Map.SB_RMPOBJECT.apAction =
                            twRMPObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
                            abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
                            pName                            : MV.MVRP.Map.Class.RMPOBJECT_NAME_SB.MAP,
-                        })
-                     ),
-
-   TYPE :            new MV.MVSB.SERVICE.CLIENT.ACTION
-                     (
-                        (4 | ((73) << 16)),
-                        new MV.MVSB.MAP
-                        ({
-                           twRMPObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
-                           abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-                           pType                            : MV.MVRP.Map.Class.RMCOMMON_TYPE_SB.MAP,
                         })
                      ),
 
@@ -1134,14 +1134,14 @@ MV.MVRP.Map.SB_RMPOBJECT.apAction =
                         })
                      ),
 
-   BOUND :           new MV.MVSB.SERVICE.CLIENT.ACTION
+   TYPE :            new MV.MVSB.SERVICE.CLIENT.ACTION
                      (
-                        (8 | ((73) << 16)),
+                        (4 | ((73) << 16)),
                         new MV.MVSB.MAP
                         ({
                            twRMPObjectIx                    : MV.MVSB.MAP.FIELD.TWORD8,
                            abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-                           pBound                           : MV.MVRP.Map.Class.RMCOMMON_BOUND_SB.MAP,
+                           pType                            : MV.MVRP.Map.Class.RMCOMMON_TYPE_SB.MAP,
                         })
                      ),
 
@@ -1300,7 +1300,7 @@ MV.MVRP.Map.REST_RMCOBJECT = class extends MV.MVRP.Map.REST_OBJECT
       this.pModel.pTransform .vPosition.Set (this.pData.pTransform.Position[0], this.pData.pTransform.Position[1], this.pData.pTransform.Position[2]);
       this.pModel.pTransform .qRotation.Set (this.pData.pTransform.Rotation[0], this.pData.pTransform.Rotation[1], this.pData.pTransform.Rotation[2], this.pData.pTransform.Rotation[3]);
       this.pModel.pTransform .vScale   .Set (this.pData.pTransform.Scale   [0], this.pData.pTransform.Scale   [1], this.pData.pTransform.Scale   [2]);
-      this.pModel.pOrbit_Spin          .Set (this.pData.pOrbit_Spin.tmPeriod, this.pData.pOrbit_Spin.tmStart, this.pData.pOrbit_Spin.dA, this.pData.pOrbit_Spin.dB);
+      this.pModel.pOrbit_Spin          .Set (this.pData.pOrbit_Spin.tmPeriod, this.pData.pOrbit_Spin.tmOrigin, this.pData.pOrbit_Spin.dA, this.pData.pOrbit_Spin.dB);
       this.pModel.pBound               .Set (this.pData.pBound.Max[0], this.pData.pBound.Max[1], this.pData.pBound.Max[2]);
       this.pModel.pProperties          .Set (this.pData.pProperties.fMass, this.pData.pProperties.fGravity, this.pData.pProperties.fColor, this.pData.pProperties.fBrightness, this.pData.pProperties.fReflectivity);
       this.pModel.nChildren               =  this.pData.nChildren;
@@ -1501,16 +1501,34 @@ MV.MVRP.Map.REST_RMPOBJECT.apAction['UPDATE'] = new MV.MVRest.SERVICE.CLIENT.ACT
 MV.MVRP.Map.IO_OBJECT = class extends MV.MVIO.IO_OBJECT
 {
 
+   ParseResponse (pResult, result)
+   {
+      pResult.Parent = JSON.parse (result.aResultSet[0][0].Object);
+      pResult.aChild = [];
+
+      for (let i=1; i < result.aResultSet.length; i++)
+      {
+         pResult.aChild[i-1] = [];
+         for (let j=0; j < result.aResultSet[i].length; j++)
+         {
+            pResult.aChild[i-1].push (JSON.parse (result.aResultSet[i][j].Object));
+         }
+      }
+   }
+
    Response (pIAction)
    {
-      let pResponse = pIAction.pResponse;
-
       let pObjectHead, pObject;
+      let result = pIAction.pResponse;
 
-      pIAction.dwResult = pResponse.nResult;
+      pIAction.dwResult = result.nResult;
 
-      if (pResponse.nResult == 0)
+      if (result.nResult == 0)
       {
+         let pResponse = {};
+
+         this.ParseResponse (pResponse, result);
+
          pObjectHead = pResponse.Parent.pObjectHead;
 
          if ((pObject = (this.pClient.pMem.ObjectBank (pObjectHead.wClass_Object)).Get (null, pObjectHead.twObjectIx)) != null)
@@ -1542,7 +1560,9 @@ MV.MVRP.Map.Class.RMCOMMON_BOUND_IO = class extends MV.MVRP.Map.Class.RMCOMMON_B
 {
    static MAP  =
    {
-      vObject         : { dX: 0, dY: 0, dZ: 0 },
+      dX:      0,
+      dY:      0,
+      dZ:      0
    };
 
    static Convert (pRequest_Out, pRequest_In)
@@ -1592,7 +1612,7 @@ MV.MVRP.Map.Class.RMCOMMON_ORBIT_SPIN_IO = class extends MV.MVRP.Map.Class.RMCOM
    static Convert (pRequest_Out, pRequest_In)
    {
       pRequest_Out.Orbit_Spin_tmPeriod = pRequest_In.pOrbit_Spin.tmPeriod;
-      pRequest_Out.Orbit_Spin_tmStart  = pRequest_In.pOrbit_Spin.tmStart;
+      pRequest_Out.Orbit_Spin_tmOrigin = pRequest_In.pOrbit_Spin.tmOrigin;
       pRequest_Out.Orbit_Spin_dA       = pRequest_In.pOrbit_Spin.dA;
       pRequest_Out.Orbit_Spin_dB       = pRequest_In.pOrbit_Spin.dB;
    };
@@ -1783,23 +1803,14 @@ MV.MVRP.Map.IO_RMROOT = class extends MV.MVRP.Map.IO_OBJECT
 
    Attach (bSubscribe)
    {
-      let bResult = true;
+      let pIAction = this.Request ('UPDATE');
+      let pRequest = pIAction.pRequest;
 
-      if (bSubscribe)
-      {
-         bResult = super.Attach ();
-      }
-      else
-      {
-         let pIAction = this.Request ('UPDATE');
-         let pRequest = pIAction.pRequest;
+      pRequest.twRMRootIx = this.pModel.twRMRootIx;
 
-         pRequest.twRMRootIx = this.pModel.twRMRootIx;
+      pIAction.Send (this, this.Response);
 
-         pIAction.Send (this, this.Response);
-      }
-
-      return bResult;
+      return true;
    }
 
    Detach (bSubscribe)
@@ -1906,8 +1917,7 @@ MV.MVRP.Map.IO_RMROOT.apAction =
                                        pResource               : MV.MVRP.Map.Class.RMCOMMON_RESOURCE_IO.MAP,
                                        pTransform              : MV.MVRP.Map.Class.RMCOMMON_TRANSFORM_IO.MAP,
                                        pBound                  : MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.MAP,
-                                       pProperties             : MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_IO.MAP,
-                                       pCoord                  : MV.MVRP.Map.Class.DCOORD_IO.MAP
+                                       pProperties             : MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_IO.MAP
                                     },
                                     function (pRequest_Out, pRequest_In)
                                     {
@@ -1920,7 +1930,6 @@ MV.MVRP.Map.IO_RMROOT.apAction =
                                        MV.MVRP.Map.Class.RMCOMMON_TRANSFORM_IO.Convert   (pRequest_Out, pRequest_In);
                                        MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.Convert       (pRequest_Out, pRequest_In);
                                        MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_IO.Convert (pRequest_Out, pRequest_In);
-                                       MV.MVRP.Map.Class.DCOORD_IO.Convert               (pRequest_Out, pRequest_In);
                                     }
                                  ),
 
@@ -2001,31 +2010,10 @@ MV.MVRP.Map.IO_RMCOBJECT = class extends MV.MVRP.Map.IO_OBJECT
       this.pModel.pTransform .vPosition.Set (this.pData.pTransform.Position[0], this.pData.pTransform.Position[1], this.pData.pTransform.Position[2]);
       this.pModel.pTransform .qRotation.Set (this.pData.pTransform.Rotation[0], this.pData.pTransform.Rotation[1], this.pData.pTransform.Rotation[2], this.pData.pTransform.Rotation[3]);
       this.pModel.pTransform .vScale   .Set (this.pData.pTransform.Scale   [0], this.pData.pTransform.Scale   [1], this.pData.pTransform.Scale   [2]);
-      this.pModel.pOrbit_Spin          .Set (this.pData.pOrbit_Spin.tmPeriod, this.pData.pOrbit_Spin.tmStart, this.pData.pOrbit_Spin.dA, this.pData.pOrbit_Spin.dB);
+      this.pModel.pOrbit_Spin          .Set (this.pData.pOrbit_Spin.tmPeriod, this.pData.pOrbit_Spin.tmOrigin, this.pData.pOrbit_Spin.dA, this.pData.pOrbit_Spin.dB);
       this.pModel.pBound               .Set (this.pData.pBound.Max[0], this.pData.pBound.Max[1], this.pData.pBound.Max[2]);
       this.pModel.pProperties          .Set (this.pData.pProperties.fMass, this.pData.pProperties.fGravity, this.pData.pProperties.fColor, this.pData.pProperties.fBrightness, this.pData.pProperties.fReflectivity);
       this.pModel.nChildren               =  this.pData.nChildren;
-   }
-
-   Attach (bSubscribe)
-   {
-      let bResult = true;
-
-      if (bSubscribe)
-      {
-         bResult = super.Attach ();
-      }
-      else
-      {
-         let pIAction = this.Request ('UPDATE');
-         let pRequest = pIAction.pRequest;
-
-         pRequest.twRMCObjectIx = this.pModel.twRMCObjectIx;
-
-         pIAction.Send (this, this.Response);
-      }
-
-      return bResult;
    }
 
    Attach ()
@@ -2319,25 +2307,16 @@ MV.MVRP.Map.IO_RMTOBJECT = class extends MV.MVRP.Map.IO_OBJECT
       this.pModel.nChildren               =  this.pData.nChildren;
    }
 
-   Attach (bSubscribe)
+   Attach ()
    {
-      let bResult = true;
+      let pIAction = this.Request ('UPDATE');
+      let pRequest = pIAction.pRequest;
 
-      if (bSubscribe)
-      {
-         bResult = super.Attach ();
-      }
-      else
-      {
-         let pIAction = this.Request ('UPDATE');
-         let pRequest = pIAction.pRequest;
+      pRequest.twRMTObjectIx = this.pModel.twRMTObjectIx;
 
-         pRequest.twRMTObjectIx = this.pModel.twRMTObjectIx;
+      pIAction.Send (this, this.Response);
 
-         pIAction.Send (this, this.Response);
-      }
-
-      return bResult;
+      return true;
    }
 
    Detach ()
@@ -2603,25 +2582,16 @@ MV.MVRP.Map.IO_RMPOBJECT = class extends MV.MVRP.Map.IO_OBJECT
       this.pModel.nChildren               =  this.pData.nChildren;
    }
 
-   Attach (bSubscribe)
+   Attach ()
    {
-      let bResult = true;
+      let pIAction = this.Request ('UPDATE');
+      let pRequest = pIAction.pRequest;
 
-      if (bSubscribe)
-      {
-         bResult = super.Attach ();
-      }
-      else
-      {
-         let pIAction = this.Request ('UPDATE');
-         let pRequest = pIAction.pRequest;
+      pRequest.twRMPObjectIx = this.pModel.twRMPObjectIx;
 
-         pRequest.twRMPObjectIx = this.pModel.twRMPObjectIx;
+      pIAction.Send (this, this.Response);
 
-         pIAction.Send (this, this.Response);
-      }
-
-      return bResult;
+      return true;
    }
 
    Detach ()
@@ -2655,6 +2625,21 @@ MV.MVRP.Map.IO_RMPOBJECT.apAction =
                                     {
                                        twRMPObjectIx : 0,
                                        sType         : ''
+                                    }
+                                 ),
+
+   BOUND :                       new MV.MVIO.SERVICE.CLIENT.ACTION
+                                 (
+                                    "RMPObject:bound",
+                                    {
+                                       twRMPObjectIx           : 0,
+                                       pBound                  : MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.MAP
+                                    },
+                                    function (pRequest_Out, pRequest_In)
+                                    {
+                                       pRequest_Out.twRMPObjectIx = pRequest_In.twRMPObjectIx;
+
+                                       MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.Convert (pRequest_Out, pRequest_In);
                                     }
                                  ),
 
@@ -2730,21 +2715,6 @@ MV.MVRP.Map.IO_RMPOBJECT.apAction =
                                        pRequest_Out.twRMPObjectIx = pRequest_In.twRMPObjectIx;
 
                                        MV.MVRP.Map.Class.RMCOMMON_TRANSFORM_IO.Convert   (pRequest_Out, pRequest_In);
-                                    }
-                                 ),
-
-   BOUND :                       new MV.MVIO.SERVICE.CLIENT.ACTION
-                                 (
-                                    "RMPObject:bound",
-                                    {
-                                       twRMPObjectIx           : 0,
-                                       pBound                  : MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.MAP
-                                    },
-                                    function (pRequest_Out, pRequest_In)
-                                    {
-                                       pRequest_Out.twRMPObjectIx = pRequest_In.twRMPObjectIx;
-
-                                       MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.Convert (pRequest_Out, pRequest_In);
                                     }
                                  ),
 
@@ -2868,10 +2838,10 @@ MV.MVRP.Map.RMCOBJECT = class extends MV.MVMF.MODEL_OBJECT
       SUPERCLUSTER  :  2,
       GALAXYCLUSTER :  3,
       GALAXY        :  4,
-      BLACKHOLE     :  5,
+      SECTOR        :  5,
       NEBULA        :  6,
       STARCLUSTER   :  7,
-      CONSTELLATION :  8,
+      BLACKHOLE     :  8,
       STARSYSTEM    :  9,
       STAR          : 10,
       PLANETSYSTEM  : 11,
@@ -3304,16 +3274,12 @@ MV.MVRP.Map.Package.MAP_IO = class extends MV.MVMF.PLUGIN.PACKAGE
                            'MVIO/MVIO',
                         ],
             aModel    : [
-                           'MVRP_Dev/Session_RP1',
-
                            'MVRP_Map/RMRoot',
                            'MVRP_Map/RMCObject',
                            'MVRP_Map/RMTObject',
                            'MVRP_Map/RMPObject',
                         ],
             aSource   : [
-                           'MVRP_Dev/MVIO:Session_RP1',
-
                            'MVRP_Map/MVIO:RMRoot',
                            'MVRP_Map/MVIO:RMCObject',
                            'MVRP_Map/MVIO:RMTObject',
@@ -3357,16 +3323,12 @@ MV.MVRP.Map.Package.MAP_REST = class extends MV.MVMF.PLUGIN.PACKAGE
                            'MVRest/MVRest',
                         ],
             aModel    : [
-                           'MVRP_Dev/Session_RP1',
-
                            'MVRP_Map/RMRoot',
                            'MVRP_Map/RMCObject',
                            'MVRP_Map/RMTObject',
                            'MVRP_Map/RMPObject',
                         ],
             aSource   : [
-                           'MVRP_Dev/MVRest:Session_RP1',
-
                            'MVRP_Map/MVRest:RMRoot',
                            'MVRP_Map/MVRest:RMCObject',
                            'MVRP_Map/MVRest:RMTObject',
@@ -3410,15 +3372,12 @@ MV.MVRP.Map.Package.MAP_SB = class extends MV.MVMF.PLUGIN.PACKAGE
                            'MVSB/MVSB',
                         ],
             aModel    : [
-                           'MVRP_Dev/Session_RP1',
-
                            'MVRP_Map/RMRoot',
                            'MVRP_Map/RMCObject',
                            'MVRP_Map/RMTObject',
                            'MVRP_Map/RMPObject',
                         ],
             aSource   : [
-
                            'MVRP_Map/MVSB:RMRoot',
                            'MVRP_Map/MVSB:RMCObject',
                            'MVRP_Map/MVSB:RMTObject',
