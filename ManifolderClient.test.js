@@ -2305,3 +2305,37 @@ test('ManifolderClient.moveObject wrapper forwards options and honors legacy ski
     assert.equal(captured[0], undefined);
   }
 });
+
+test('_confirmMutation with tolerateTimeout resolves as unconfirmed on MUTATION_TIMEOUT', async () => {
+  const client = new SingleScopeClient();
+
+  const result = await client._confirmMutation(
+    () => false, // never matches — will time out
+    'test op',
+    50,   // timeoutMs
+    0,    // minTimestamp
+    true, // tolerateTimeout
+  );
+
+  assert.equal(result.confirmed, false);
+  assert.equal(result.timeout, true);
+});
+
+test('_confirmMutation without tolerateTimeout rejects with code MUTATION_TIMEOUT', async () => {
+  const client = new SingleScopeClient();
+
+  await assert.rejects(
+    () => client._confirmMutation(
+      () => false,
+      'test op',
+      50,
+      0,
+      false,
+    ),
+    (err) => {
+      assert.equal(err.code, 'MUTATION_TIMEOUT');
+      assert.match(err.message, /Timeout waiting for mutation notification/);
+      return true;
+    },
+  );
+});
