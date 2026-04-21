@@ -2244,3 +2244,64 @@ test('bulkUpdate threads scaled timeout and strict tolerateTimeout into all 4 ve
     assert.equal(params.skipConfirmation, false, `${verb} must wait for confirmation in await mode`);
   }
 });
+
+test('ManifolderClient.moveObject wrapper forwards options and honors legacy skipRefetch', async () => {
+  const scopeId = 'fs1_move_wrapper';
+  const objectId = 'physical:17';
+  const newParentId = 'physical:9';
+
+  const buildClient = () => {
+    const client = new ManifolderClient();
+    const runtime = new SingleScopeClient();
+    const captured = [];
+    runtime.moveObject = async (_id, _newParent, optionsOrSkipRefetch) => {
+      captured.push(optionsOrSkipRefetch);
+      return { id: objectId, parentId: newParentId, confirmed: true };
+    };
+    runtime.objectCache.set(objectId, { wClass_Parent: TEST_CLASS_IDS.RMPObject, twParentIx: 5 });
+    client._invalidateObjectIdsAcrossFabric = () => {};
+    client.scopeRuntimes.set(scopeId, runtime);
+    client._registerScope({
+      scopeId,
+      fabricUrl: 'https://example.com/fabric/shared.msf',
+      parentScopeId: null,
+      attachmentNodeUid: null,
+      depth: 0,
+    });
+    return { client, captured };
+  };
+
+  // 1. options object is forwarded verbatim as the third arg.
+  {
+    const { client, captured } = buildClient();
+    const options = { skipRefetch: true, tolerateTimeout: true, mutationTimeoutMs: 12345 };
+    await client.moveObject({ scopeId, objectId, newParentId, options });
+    assert.equal(captured.length, 1);
+    assert.deepEqual(captured[0], options);
+  }
+
+  // 2. Legacy boolean skipRefetch (no options) is forwarded as a boolean.
+  {
+    const { client, captured } = buildClient();
+    await client.moveObject({ scopeId, objectId, newParentId, skipRefetch: true });
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0], true);
+  }
+
+  // 3. When both are supplied, options wins (options ?? skipRefetch precedence).
+  {
+    const { client, captured } = buildClient();
+    const options = { skipRefetch: false, tolerateTimeout: true };
+    await client.moveObject({ scopeId, objectId, newParentId, skipRefetch: true, options });
+    assert.equal(captured.length, 1);
+    assert.deepEqual(captured[0], options);
+  }
+
+  // 4. Neither supplied → undefined flows through (runtime applies its own defaults).
+  {
+    const { client, captured } = buildClient();
+    await client.moveObject({ scopeId, objectId, newParentId });
+    assert.equal(captured.length, 1);
+    assert.equal(captured[0], undefined);
+  }
+});

@@ -37,6 +37,7 @@ import { getMsfReference } from './node-helpers.js';
 /** @typedef {{ sID: string; twObjectIx: number }} ModelRef */
 /** @typedef {{ matches: any[]; paths: any[]; unavailable: string[] }} SearchNodesResult */
 function debugLog(_msg) { }
+const MUTATION_TIMEOUT_CODE = 'MUTATION_TIMEOUT';
 const ClassIds = {
     RMRoot: 70,
     RMCObject: 71,
@@ -725,7 +726,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                     this.pendingMutationWaits.delete(wait);
                 }
                 const err = new Error(`Timeout waiting for mutation notification: ${description}`);
-                err.code = 'MUTATION_TIMEOUT';
+                err.code = MUTATION_TIMEOUT_CODE;
                 reject(err);
             }, timeoutMs);
             wait = { matchFn, resolve, reject, timeoutId, minTimestamp };
@@ -753,7 +754,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             return { confirmed: true };
         }
         catch (err) {
-            if (tolerateTimeout && err.code === 'MUTATION_TIMEOUT') {
+            if (tolerateTimeout && err.code === MUTATION_TIMEOUT_CODE) {
                 debugLog(`[_confirmMutation] timeout tolerated for: ${description}`);
                 return { confirmed: false, timeout: true };
             }
@@ -2405,7 +2406,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 launchNext();
             }
         }
-        return { success, failed, createdIds, errors, results: [...results] };
+        return { success, failed, createdIds, errors, results };
     }
     async loadFullTree(scopeId) {
         if (!this.objectCache.has(scopeId)) {
@@ -3664,13 +3665,13 @@ export class ManifolderClient {
         this._invalidateObjectIdsAcrossFabric(scopeId, [objectId, parentId]);
         return result;
     }
-    async moveObject({ scopeId, objectId, newParentId, skipRefetch }) {
+    async moveObject({ scopeId, objectId, newParentId, skipRefetch, options }) {
         const runtime = this._requireScopeRuntime(scopeId);
         const cached = runtime.objectCache?.get(objectId);
         const oldParentId = cached?.wClass_Parent && Number.isInteger(cached?.twParentIx)
             ? formatObjectRef(cached.wClass_Parent, cached.twParentIx)
             : null;
-        const obj = await runtime.moveObject(objectId, newParentId, skipRefetch);
+        const obj = await runtime.moveObject(objectId, newParentId, options ?? skipRefetch);
         this._invalidateObjectIdsAcrossFabric(scopeId, [objectId, newParentId, oldParentId, obj?.parentId ?? null]);
         return this._enrichObjectWithScope(scopeId, obj);
     }

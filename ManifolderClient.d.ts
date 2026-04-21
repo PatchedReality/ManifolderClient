@@ -583,11 +583,12 @@ export class ManifolderClient {
         objectId: any;
         options?: import("./types.js").DeleteObjectOptions;
     }): Promise<import("./types.js").DeleteObjectResult>;
-    moveObject({ scopeId, objectId, newParentId, skipRefetch }: {
+    moveObject({ scopeId, objectId, newParentId, skipRefetch, options }: {
         scopeId: any;
         objectId: any;
         newParentId: any;
-        skipRefetch: any;
+        skipRefetch?: boolean;
+        options?: import("./types.js").MoveObjectOptions;
     }): Promise<import("./types.js").MutatedObject>;
     bulkUpdate({ scopeId, operations, options }: {
         scopeId: any;
