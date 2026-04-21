@@ -244,35 +244,45 @@ export class SingleScopeClient {
     getObject(objectId: string): Promise<FabricObject>;
     /**
      * @param {CreateObjectParams} params
-     * @returns {Promise<FabricObject>}
+     * @returns {Promise<MutatedObject>}
      */
-    createObject(params: CreateObjectParams): Promise<FabricObject>;
+    createObject(params: CreateObjectParams): Promise<MutatedObject>;
     /**
      * @param {UpdateObjectParams} params
-     * @returns {Promise<FabricObject>}
+     * @returns {Promise<MutatedObject>}
      */
-    updateObject(params: UpdateObjectParams): Promise<FabricObject>;
+    updateObject(params: UpdateObjectParams): Promise<MutatedObject>;
     /**
      * @param {string} objectId
-     * @returns {Promise<void>}
+     * @param {DeleteObjectOptions} [options]
+     * @returns {Promise<DeleteObjectResult>}
      */
-    deleteObject(objectId: string): Promise<void>;
+    deleteObject(objectId: string, options?: DeleteObjectOptions): Promise<DeleteObjectResult>;
     /**
      * @param {string} objectId
      * @param {string} newParentId
-     * @param {boolean} [skipRefetch]
-     * @returns {Promise<FabricObject>}
+     * @param {MoveObjectOptions | boolean} [optionsOrSkipRefetch]
+     * @returns {Promise<MutatedObject>}
      */
-    moveObject(objectId: string, newParentId: string, skipRefetch?: boolean): Promise<FabricObject>;
+    moveObject(objectId: string, newParentId: string, optionsOrSkipRefetch?: MoveObjectOptions | boolean): Promise<MutatedObject>;
     /**
      * @param {BulkOperation[]} operations
-     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[] }>}
+     * @param {import("./types.js").BulkUpdateOptions} [options]
+     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[]; results: Array<{status: 'ok'; id?: string; confirmed: boolean} | {status: 'error'; message: string}> }>}
      */
-    bulkUpdate(operations: BulkOperation[]): Promise<{
+    bulkUpdate(operations: BulkOperation[], options?: import("./types.js").BulkUpdateOptions): Promise<{
         success: number;
         failed: number;
         createdIds: string[];
         errors: string[];
+        results: Array<{
+            status: 'ok';
+            id?: string;
+            confirmed: boolean;
+        } | {
+            status: 'error';
+            message: string;
+        }>;
     }>;
     loadFullTree(scopeId: any): Promise<any[]>;
     latLonToWorldCoords(lat: any, lon: any, radius?: number): {
@@ -563,29 +573,40 @@ export class ManifolderClient {
     createObject({ scopeId, ...createParams }: {
         [x: string]: any;
         scopeId: any;
-    }): Promise<import("./types.js").FabricObject>;
+    }): Promise<import("./types.js").MutatedObject>;
     updateObject({ scopeId, ...updateParams }: {
         [x: string]: any;
         scopeId: any;
-    }): Promise<import("./types.js").FabricObject>;
-    deleteObject({ scopeId, objectId }: {
+    }): Promise<import("./types.js").MutatedObject>;
+    deleteObject({ scopeId, objectId, options }: {
         scopeId: any;
         objectId: any;
-    }): Promise<void>;
-    moveObject({ scopeId, objectId, newParentId, skipRefetch }: {
+        options?: import("./types.js").DeleteObjectOptions;
+    }): Promise<import("./types.js").DeleteObjectResult>;
+    moveObject({ scopeId, objectId, newParentId, skipRefetch, options }: {
         scopeId: any;
         objectId: any;
         newParentId: any;
-        skipRefetch: any;
-    }): Promise<import("./types.js").FabricObject>;
-    bulkUpdate({ scopeId, operations }: {
+        skipRefetch?: boolean;
+        options?: import("./types.js").MoveObjectOptions;
+    }): Promise<import("./types.js").MutatedObject>;
+    bulkUpdate({ scopeId, operations, options }: {
         scopeId: any;
         operations: any;
+        options?: import("./types.js").BulkUpdateOptions;
     }): Promise<{
         success: number;
         failed: number;
         createdIds: string[];
         errors: string[];
+        results: Array<{
+            status: 'ok';
+            id?: string;
+            confirmed: boolean;
+        } | {
+            status: 'error';
+            message: string;
+        }>;
     }>;
     findObjects({ scopeId, anchorObjectId, query }: {
         scopeId: any;
@@ -610,12 +631,17 @@ export class ManifolderClient {
     }>;
 }
 export type BulkOperation = import("./types.js").BulkOperation;
+export type BulkUpdateOptions = import("./types.js").BulkUpdateOptions;
 export type AttachmentParentInfo = import("./types.js").AttachmentParentInfo;
 export type ConnectionStatus = import("./types.js").ConnectionStatus;
 export type ConnectRootParams = import("./types.js").ConnectRootParams;
 export type CreateObjectParams = import("./types.js").CreateObjectParams;
 export type EarthAttachmentParentResult = import("./types.js").EarthAttachmentParentResult;
 export type FabricObject = import("./types.js").FabricObject;
+export type MutatedObject = import("./types.js").MutatedObject;
+export type DeleteObjectOptions = import("./types.js").DeleteObjectOptions;
+export type DeleteObjectResult = import("./types.js").DeleteObjectResult;
+export type MoveObjectOptions = import("./types.js").MoveObjectOptions;
 export type FabricScopeId = import("./types.js").FabricScopeId;
 export type FindEarthAttachmentParentParams = import("./types.js").FindEarthAttachmentParentParams;
 export type FollowAttachmentParams = import("./types.js").FollowAttachmentParams;

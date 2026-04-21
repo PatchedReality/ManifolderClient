@@ -197,6 +197,16 @@ export interface FabricObject {
   properties?: CelestialProperties | null;
 }
 
+export interface MutatedObject extends FabricObject {
+  /** Whether the mutation was confirmed via notification. False when confirmation was skipped (optimistic mode) or tolerated a timeout. */
+  confirmed: boolean;
+}
+
+export interface DeleteObjectResult {
+  /** Whether the deletion was confirmed via notification. False when confirmation was skipped (optimistic mode) or tolerated a timeout. */
+  confirmed: boolean;
+}
+
 export interface Scene {
   id: string;
   name: string;
@@ -293,6 +303,12 @@ export interface CreateObjectParams {
   orbit?: Orbit;
   properties?: CelestialProperties;
   skipParentRefetch?: boolean;
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
+  /** When true, skip _confirmMutation and return confirmed: false immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
 }
 
 export interface UpdateObjectParams {
@@ -309,11 +325,44 @@ export interface UpdateObjectParams {
   orbit?: Orbit;
   properties?: CelestialProperties;
   skipRefetch?: boolean;
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
+  /** When true, skip confirmation wait and return confirmed: false immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
+}
+
+export interface DeleteObjectOptions {
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
+  /** When true, skip confirmation wait and return immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
+}
+
+export interface MoveObjectOptions {
+  /** When true, skip refetching the moved object and return a shallow result. */
+  skipRefetch?: boolean;
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
+  /** When true, skip confirmation wait and return confirmed: false immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
 }
 
 export interface BulkOperation {
   type: 'create' | 'update' | 'delete' | 'move';
   params: CreateObjectParams | UpdateObjectParams | { objectId: string } | { objectId: string; newParentId: string };
+}
+
+export interface BulkUpdateOptions {
+  /** Max concurrent operations. Default 10, min 1, max 100. */
+  concurrency?: number;
+  /** "await" waits for mutation confirmation; "optimistic" skips it. Default "await". */
+  confirmMode?: 'await' | 'optimistic';
 }
 
 export interface ConnectionStatus {

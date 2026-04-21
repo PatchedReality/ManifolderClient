@@ -11,6 +11,10 @@ import { getMsfReference } from './node-helpers.js';
 /** @typedef {import('./types.js').ConnectRootParams} ConnectRootParams */
 /** @typedef {import('./types.js').CreateObjectParams} CreateObjectParams */
 /** @typedef {import('./types.js').FabricObject} FabricObject */
+/** @typedef {import('./types.js').MutatedObject} MutatedObject */
+/** @typedef {import('./types.js').DeleteObjectOptions} DeleteObjectOptions */
+/** @typedef {import('./types.js').DeleteObjectResult} DeleteObjectResult */
+/** @typedef {import('./types.js').MoveObjectOptions} MoveObjectOptions */
 /** @typedef {import('./types.js').FabricScopeId} FabricScopeId */
 /** @typedef {import('./types.js').FindEarthAttachmentParentParams} FindEarthAttachmentParentParams */
 /** @typedef {import('./types.js').FollowAttachmentParams} FollowAttachmentParams */
@@ -33,6 +37,7 @@ import { getMsfReference } from './node-helpers.js';
 /** @typedef {{ sID: string; twObjectIx: number }} ModelRef */
 /** @typedef {{ matches: any[]; paths: any[]; unavailable: string[] }} SearchNodesResult */
 function debugLog(_msg) { }
+const MUTATION_TIMEOUT_CODE = 'MUTATION_TIMEOUT';
 const ClassIds = {
     RMRoot: 70,
     RMCObject: 71,
@@ -720,7 +725,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 if (wait) {
                     this.pendingMutationWaits.delete(wait);
                 }
-                reject(new Error(`Timeout waiting for mutation notification: ${description}`));
+                const err = new Error(`Timeout waiting for mutation notification: ${description}`);
+                err.code = MUTATION_TIMEOUT_CODE;
+                reject(err);
             }, timeoutMs);
             wait = { matchFn, resolve, reject, timeoutId, minTimestamp };
             this.pendingMutationWaits.add(wait);
@@ -740,10 +747,18 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         };
         return { promise, cancel };
     }
-    async _confirmMutation(matchFn, description, timeoutMs = this.promiseTimeoutMs, minTimestamp = 0) {
+    async _confirmMutation(matchFn, description, timeoutMs = this.promiseTimeoutMs, minTimestamp = 0, tolerateTimeout = false) {
         const wait = this._createMutationWait(matchFn, description, timeoutMs, minTimestamp);
         try {
             await wait.promise;
+            return { confirmed: true };
+        }
+        catch (err) {
+            if (tolerateTimeout && err.code === MUTATION_TIMEOUT_CODE) {
+                debugLog(`[_confirmMutation] timeout tolerated for: ${description}`);
+                return { confirmed: false, timeout: true };
+            }
+            throw err;
         }
         finally {
             wait.cancel();
@@ -1819,23 +1834,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         const newId = numericNewId != null
             ? formatObjectRef(childClassId, numericNewId)
             : `${formatObjectRef(childClassId, Date.now())}`;
-        await this._confirmMutation((event) => {
-            if (event.kind !== 'inserted' || event.childClassId !== childClassId) {
-                return false;
-            }
-            const idOrNameMatches = numericNewId != null
-                ? event.childObjectId === numericNewId
-                : event.name === params.name;
-            if (!idOrNameMatches) {
-                return false;
-            }
-            if (event.parentClassId == null || event.parentObjectId == null) {
-                return true;
-            }
-            return event.parentClassId === pParent.wClass_Object &&
-                event.parentObjectId === pParent.twObjectIx;
-        }, `create object ${params.name}`, undefined, startedAt);
-        return {
+        const buildResult = (confirmed) => ({
             id: newId,
             parentId: params.parentId,
             name: params.name,
@@ -1854,11 +1853,32 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             children: null,
             orbit: isCelestial ? params.orbit ?? undefined : undefined,
             properties: isCelestial ? params.properties ?? undefined : undefined,
-        };
+            confirmed,
+        });
+        if (params.skipConfirmation) {
+            return buildResult(false);
+        }
+        const confirmResult = await this._confirmMutation((event) => {
+            if (event.kind !== 'inserted' || event.childClassId !== childClassId) {
+                return false;
+            }
+            const idOrNameMatches = numericNewId != null
+                ? event.childObjectId === numericNewId
+                : event.name === params.name;
+            if (!idOrNameMatches) {
+                return false;
+            }
+            if (event.parentClassId == null || event.parentObjectId == null) {
+                return true;
+            }
+            return event.parentClassId === pParent.wClass_Object &&
+                event.parentObjectId === pParent.twObjectIx;
+        }, `create object ${params.name}`, params.mutationTimeoutMs ?? undefined, startedAt, params.tolerateTimeout ?? false);
+        return buildResult(confirmResult.confirmed);
     }
     /**
      * @param {UpdateObjectParams} params
-     * @returns {Promise<FabricObject>}
+     * @returns {Promise<MutatedObject>}
      */
     async updateObject(params) {
         await this.ensureConnected();
@@ -1869,6 +1889,22 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             this.objectCache.set(params.objectId, pObject);
         }
         this.attachTo(pObject);
+        const skipConfirmation = params.skipConfirmation === true;
+        const tolerateTimeout = params.tolerateTimeout === true;
+        const mutationTimeoutMs = params.mutationTimeoutMs;
+        // If no mutable fields are supplied, no _confirmMutation runs and allConfirmed stays at
+        // its initial value: true in await mode ("trivially confirmed, nothing to await"),
+        // false in optimistic mode (consistent with the optimistic contract).
+        let allConfirmed = !skipConfirmation;
+        const confirmUpdate = async (matchFn, description, startedAt) => {
+            if (skipConfirmation) {
+                return;
+            }
+            const result = await this._confirmMutation(matchFn, description, mutationTimeoutMs ?? undefined, startedAt, tolerateTimeout);
+            if (!result.confirmed) {
+                allConfirmed = false;
+            }
+        };
         if (params.name !== undefined) {
             const nameField = CLASS_ID_TO_NAME_FIELD[classId];
             if (!nameField) {
@@ -1881,9 +1917,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             if (response.nResult !== 0) {
                 throw new Error(this.formatResponseError('Failed to update name', response));
             }
-            await this._confirmMutation((event) => event.kind === 'updated' &&
+            await confirmUpdate((event) => event.kind === 'updated' &&
                 event.classId === classId &&
-                event.objectId === numericId, `update name for ${params.objectId}`, undefined, startedAt);
+                event.objectId === numericId, `update name for ${params.objectId}`, startedAt);
         }
         if (params.position !== undefined || params.rotation !== undefined || params.scale !== undefined) {
             const startedAt = Date.now();
@@ -1908,9 +1944,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             if (response.nResult !== 0) {
                 throw new Error(this.formatResponseError('Failed to update transform', response));
             }
-            await this._confirmMutation((event) => event.kind === 'updated' &&
+            await confirmUpdate((event) => event.kind === 'updated' &&
                 event.classId === classId &&
-                event.objectId === numericId, `update transform for ${params.objectId}`, undefined, startedAt);
+                event.objectId === numericId, `update transform for ${params.objectId}`, startedAt);
         }
         if (params.resourceReference !== undefined || params.resourceName !== undefined) {
             const startedAt = Date.now();
@@ -1925,9 +1961,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             if (response.nResult !== 0) {
                 throw new Error(this.formatResponseError('Failed to update resource', response));
             }
-            await this._confirmMutation((event) => event.kind === 'updated' &&
+            await confirmUpdate((event) => event.kind === 'updated' &&
                 event.classId === classId &&
-                event.objectId === numericId, `update resource for ${params.objectId}`, undefined, startedAt);
+                event.objectId === numericId, `update resource for ${params.objectId}`, startedAt);
         }
         if (params.bound !== undefined) {
             const startedAt = Date.now();
@@ -1939,9 +1975,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             if (response.nResult !== 0) {
                 throw new Error(this.formatResponseError('Failed to update bound', response));
             }
-            await this._confirmMutation((event) => event.kind === 'updated' &&
+            await confirmUpdate((event) => event.kind === 'updated' &&
                 event.classId === classId &&
-                event.objectId === numericId, `update bound for ${params.objectId}`, undefined, startedAt);
+                event.objectId === numericId, `update bound for ${params.objectId}`, startedAt);
         }
         if (params.orbit !== undefined) {
             // IO transport registers this as 'ORBIT_SPIN', SB transport as 'ORBIT'
@@ -1956,9 +1992,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             if (response.nResult !== 0) {
                 throw new Error(this.formatResponseError('Failed to update orbit', response));
             }
-            await this._confirmMutation((event) => event.kind === 'updated' &&
+            await confirmUpdate((event) => event.kind === 'updated' &&
                 event.classId === classId &&
-                event.objectId === numericId, `update orbit for ${params.objectId}`, undefined, startedAt);
+                event.objectId === numericId, `update orbit for ${params.objectId}`, startedAt);
         }
         if (params.properties !== undefined) {
             const startedAt = Date.now();
@@ -1972,9 +2008,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             if (response.nResult !== 0) {
                 throw new Error(this.formatResponseError('Failed to update properties', response));
             }
-            await this._confirmMutation((event) => event.kind === 'updated' &&
+            await confirmUpdate((event) => event.kind === 'updated' &&
                 event.classId === classId &&
-                event.objectId === numericId, `update properties for ${params.objectId}`, undefined, startedAt);
+                event.objectId === numericId, `update properties for ${params.objectId}`, startedAt);
         }
         if (params.objectType !== undefined || params.subtype !== undefined) {
             let desiredBType = pObject.pType?.bType ?? 0;
@@ -2005,9 +2041,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 if (response.nResult !== 0) {
                     throw new Error(this.formatResponseError('Failed to update type', response));
                 }
-                await this._confirmMutation((event) => event.kind === 'updated' &&
+                await confirmUpdate((event) => event.kind === 'updated' &&
                     event.classId === classId &&
-                    event.objectId === numericId, `update type for ${params.objectId}`, undefined, startedAt);
+                    event.objectId === numericId, `update type for ${params.objectId}`, startedAt);
             }
         }
         if (params.skipRefetch) {
@@ -2046,6 +2082,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                     brightness: params.properties?.brightness ?? pObject.pProperties.fBrightness ?? 0,
                     reflectivity: params.properties?.reflectivity ?? pObject.pProperties.fReflectivity ?? 0,
                 } : undefined,
+                confirmed: allConfirmed,
             };
         }
         const result = await this.getObject(params.objectId);
@@ -2075,13 +2112,15 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 ...params.properties,
             };
         }
+        result.confirmed = allConfirmed;
         return result;
     }
     /**
      * @param {string} objectId
-     * @returns {Promise<void>}
+     * @param {DeleteObjectOptions} [options]
+     * @returns {Promise<DeleteObjectResult>}
      */
-    async deleteObject(objectId) {
+    async deleteObject(objectId, options = {}) {
         await this.ensureConnected();
         const { classId, numericId } = parseObjectRef(objectId);
         const closeInfo = CLASS_ID_TO_CLOSE_ACTION[classId];
@@ -2116,26 +2155,34 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         if (response.nResult !== 0) {
             throw new Error(this.formatResponseError('Failed to delete object', response));
         }
-        await this._confirmMutation((event) => {
-            if (event.kind !== 'deleted' || event.classId !== classId || event.objectId !== numericId) {
-                return false;
-            }
-            if (event.parentClassId == null || event.parentObjectId == null) {
-                return true;
-            }
-            return event.parentClassId === parentClassId &&
-                event.parentObjectId === parentNumericId;
-        }, `delete object ${objectId}`, undefined, startedAt);
+        let confirmed = false;
+        if (!options.skipConfirmation) {
+            const confirmResult = await this._confirmMutation((event) => {
+                if (event.kind !== 'deleted' || event.classId !== classId || event.objectId !== numericId) {
+                    return false;
+                }
+                if (event.parentClassId == null || event.parentObjectId == null) {
+                    return true;
+                }
+                return event.parentClassId === parentClassId &&
+                    event.parentObjectId === parentNumericId;
+            }, `delete object ${objectId}`, options.mutationTimeoutMs ?? undefined, startedAt, options.tolerateTimeout === true);
+            confirmed = confirmResult.confirmed;
+        }
         this.objectCache.delete(objectId);
+        return { confirmed };
     }
     /**
      * @param {string} objectId
      * @param {string} newParentId
-     * @param {boolean} [skipRefetch]
-     * @returns {Promise<FabricObject>}
+     * @param {MoveObjectOptions | boolean} [optionsOrSkipRefetch] When a boolean, treated as legacy `skipRefetch`.
+     * @returns {Promise<MutatedObject>}
      */
-    async moveObject(objectId, newParentId, skipRefetch) {
+    async moveObject(objectId, newParentId, optionsOrSkipRefetch) {
         await this.ensureConnected();
+        const options = typeof optionsOrSkipRefetch === 'boolean'
+            ? { skipRefetch: optionsOrSkipRefetch }
+            : (optionsOrSkipRefetch ?? {});
         const { classId, numericId } = parseObjectRef(objectId);
         const { classId: newParentClassId, numericId: newParentNumericId } = parseObjectRef(newParentId);
         let pObject = this.objectCache.get(objectId);
@@ -2163,26 +2210,30 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         if (response.nResult !== 0) {
             throw new Error(this.formatResponseError('Failed to move object', response));
         }
-        await this._confirmMutation((event) => {
-            if (event.timestamp < startedAt) {
-                return false;
-            }
-            const missingParentMetadata = event.parentClassId == null || event.parentObjectId == null;
-            const deletedFromOldParent = event.kind === 'deleted' &&
-                event.classId === classId &&
-                event.objectId === numericId &&
-                (missingParentMetadata || (event.parentClassId === oldParentClassId &&
-                    event.parentObjectId === oldParentNumericId));
-            const insertedIntoNewParent = event.kind === 'inserted' &&
-                event.childClassId === classId &&
-                event.childObjectId === numericId &&
-                (missingParentMetadata || (event.parentClassId === newParentClassId &&
-                    event.parentObjectId === newParentNumericId));
-            return deletedFromOldParent || insertedIntoNewParent;
-        }, `move object ${objectId} -> ${newParentId}`, undefined, startedAt);
+        let confirmed = false;
+        if (!options.skipConfirmation) {
+            const confirmResult = await this._confirmMutation((event) => {
+                if (event.timestamp < startedAt) {
+                    return false;
+                }
+                const missingParentMetadata = event.parentClassId == null || event.parentObjectId == null;
+                const deletedFromOldParent = event.kind === 'deleted' &&
+                    event.classId === classId &&
+                    event.objectId === numericId &&
+                    (missingParentMetadata || (event.parentClassId === oldParentClassId &&
+                        event.parentObjectId === oldParentNumericId));
+                const insertedIntoNewParent = event.kind === 'inserted' &&
+                    event.childClassId === classId &&
+                    event.childObjectId === numericId &&
+                    (missingParentMetadata || (event.parentClassId === newParentClassId &&
+                        event.parentObjectId === newParentNumericId));
+                return deletedFromOldParent || insertedIntoNewParent;
+            }, `move object ${objectId} -> ${newParentId}`, options.mutationTimeoutMs ?? undefined, startedAt, options.tolerateTimeout === true);
+            confirmed = confirmResult.confirmed;
+        }
         // Model fields may be getter-only; force subsequent reads/writes to reopen authoritative state.
         this.objectCache.delete(objectId);
-        if (skipRefetch) {
+        if (options.skipRefetch) {
             return {
                 id: objectId,
                 parentId: newParentId,
@@ -2200,20 +2251,35 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 subtype: pObject.pType?.bSubtype ?? 0,
                 isAttachmentPoint: (pObject.pType?.bSubtype ?? 0) === 255,
                 children: null,
+                confirmed,
             };
         }
-        return this.getObject(objectId);
+        const fetched = await this.getObject(objectId);
+        return { ...fetched, confirmed };
     }
     /**
      * @param {BulkOperation[]} operations
-     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[] }>}
+     * @param {BulkUpdateOptions} [options]
+     * @param {number} [options.concurrency=10] Max concurrent operations (1-100)
+     * @param {'await'|'optimistic'} [options.confirmMode='await'] "optimistic" skips mutation confirmation wait
+     * @returns {Promise<{ success: number; failed: number; createdIds: string[]; errors: string[]; results: Array<{status: 'ok', id?: string, confirmed: boolean} | {status: 'error', message: string}> }>}
+     *
+     * Ordering: `results[i]` corresponds to `operations[i]` (positional).
+     * `createdIds` is in *completion* order due to the sliding-window scheduler;
+     * to map a created id back to its source operation, use `results[i].id`.
      */
-    async bulkUpdate(operations) {
+    async bulkUpdate(operations, options = {}) {
         let success = 0;
         let failed = 0;
         const createdIds = [];
         const errors = [];
-        const CONCURRENCY = 10;
+        const concurrency = Math.max(1, Math.min(100, options?.concurrency ?? 10));
+        const skipConfirmation = options?.confirmMode === 'optimistic';
+        // Scale mutation timeout based on batch size to avoid false timeouts
+        // under load. Each wave of concurrency ops adds 500ms, capped at +30s.
+        const waves = Math.ceil(operations.length / concurrency);
+        const scaledTimeoutMs = this.promiseTimeoutMs + Math.min(waves * 500, 30000);
+        debugLog(`[bulkUpdate] concurrency=${concurrency} confirmMode=${options?.confirmMode ?? 'await'} scaled timeout: ${this.promiseTimeoutMs}ms -> ${scaledTimeoutMs}ms for ${operations.length} ops (${waves} waves)`);
         // Pre-fetch all referenced objects so concurrent ops don't race
         const idsToPreload = new Set();
         for (const op of operations) {
@@ -2261,6 +2327,17 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 : [op.params.objectId];
             return ids.find(id => prefetchFailed.has(id));
         };
+        // tolerateTimeout is intentionally coupled to skipConfirmation (both derived from
+        // optimistic mode). In await mode, timeouts must throw to preserve strict behavior,
+        // so tolerateTimeout=false. In optimistic mode, skipConfirmation=true short-circuits
+        // _confirmMutation before tolerateTimeout could matter — the flag is inert but kept
+        // for intent. Do not set tolerateTimeout=true while skipConfirmation=false: that would
+        // mask real confirmation failures in await mode.
+        const mutationOpts = {
+            mutationTimeoutMs: scaledTimeoutMs,
+            tolerateTimeout: skipConfirmation,
+            skipConfirmation,
+        };
         const executeOp = async (op) => {
             const badId = getFailedId(op);
             if (badId) {
@@ -2269,46 +2346,67 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             switch (op.type) {
                 case 'create': {
                     const createParams = op.params;
-                    const obj = await this.createObject({ ...createParams, skipParentRefetch: true });
-                    return obj.id;
+                    const obj = await this.createObject({ ...createParams, skipParentRefetch: true, ...mutationOpts });
+                    return { id: obj.id, confirmed: obj.confirmed };
                 }
-                case 'update':
-                    await this.updateObject({ ...op.params, skipRefetch: true });
-                    return null;
-                case 'delete':
-                    await this.deleteObject(op.params.objectId);
-                    return null;
+                case 'update': {
+                    const obj = await this.updateObject({ ...op.params, skipRefetch: true, ...mutationOpts });
+                    return { confirmed: obj.confirmed };
+                }
+                case 'delete': {
+                    const deleteResult = await this.deleteObject(op.params.objectId, mutationOpts);
+                    return { confirmed: deleteResult.confirmed };
+                }
                 case 'move': {
                     const moveParams = op.params;
-                    const pObj = this.objectCache.get(moveParams.objectId);
-                    const oldParentClassId = pObj?.wClass_Parent;
-                    const oldParentNumericId = pObj?.twParentIx;
-                    const oldParentId = oldParentClassId && oldParentNumericId
-                        ? formatObjectRef(oldParentClassId, oldParentNumericId)
-                        : null;
-                    await this.moveObject(moveParams.objectId, moveParams.newParentId, true);
-                    return null;
+                    const obj = await this.moveObject(moveParams.objectId, moveParams.newParentId, { skipRefetch: true, ...mutationOpts });
+                    return { confirmed: obj.confirmed };
                 }
             }
         };
-        // Process all ops concurrently in batches
-        for (let i = 0; i < operations.length; i += CONCURRENCY) {
-            const batch = operations.slice(i, i + CONCURRENCY);
-            const results = await Promise.allSettled(batch.map(op => executeOp(op)));
-            for (let j = 0; j < results.length; j++) {
-                const result = results[j];
-                if (result.status === 'fulfilled') {
+        // Sliding window: start new op as soon as any slot frees up.
+        // Note: results[i] preserves positional order (results[i] ↔ operations[i]).
+        // createdIds is in completion order, not positional — use results[i].id for positional mapping.
+        const results = new Array(operations.length);
+        let nextIdx = 0;
+        const inFlight = new Set();
+        const launchNext = () => {
+            if (nextIdx >= operations.length) return;
+            const idx = nextIdx++;
+            const op = operations[idx];
+            const p = executeOp(op)
+                .then(value => {
                     success++;
-                    if (result.value)
-                        createdIds.push(result.value);
-                }
-                else {
+                    const entry = { status: 'ok', confirmed: value?.confirmed };
+                    if (value?.id) {
+                        createdIds.push(value.id);
+                        entry.id = value.id;
+                    }
+                    results[idx] = entry;
+                })
+                .catch(err => {
                     failed++;
-                    errors.push(`${batch[j].type} failed: ${result.reason?.message || 'unknown error'}`);
-                }
+                    const message = `${op.type} failed: ${err?.message || 'unknown error'}`;
+                    errors.push(message);
+                    results[idx] = { status: 'error', message };
+                })
+                .finally(() => {
+                    inFlight.delete(p);
+                });
+            inFlight.add(p);
+        };
+        // Fill initial window
+        for (let i = 0; i < concurrency && i < operations.length; i++) {
+            launchNext();
+        }
+        // As each completes, launch the next
+        while (inFlight.size > 0) {
+            await Promise.race(inFlight);
+            while (inFlight.size < concurrency && nextIdx < operations.length) {
+                launchNext();
             }
         }
-        return { success, failed, createdIds, errors };
+        return { success, failed, createdIds, errors, results };
     }
     async loadFullTree(scopeId) {
         if (!this.objectCache.has(scopeId)) {
@@ -3557,27 +3655,28 @@ export class ManifolderClient {
         this._invalidateObjectIdsAcrossFabric(scopeId, [updateParams.objectId, obj?.parentId ?? null]);
         return this._enrichObjectWithScope(scopeId, obj);
     }
-    async deleteObject({ scopeId, objectId }) {
+    async deleteObject({ scopeId, objectId, options }) {
         const runtime = this._requireScopeRuntime(scopeId);
         const cached = runtime.objectCache?.get(objectId);
         const parentId = cached?.wClass_Parent && Number.isInteger(cached?.twParentIx)
             ? formatObjectRef(cached.wClass_Parent, cached.twParentIx)
             : null;
-        await runtime.deleteObject(objectId);
+        const result = await runtime.deleteObject(objectId, options);
         this._invalidateObjectIdsAcrossFabric(scopeId, [objectId, parentId]);
+        return result;
     }
-    async moveObject({ scopeId, objectId, newParentId, skipRefetch }) {
+    async moveObject({ scopeId, objectId, newParentId, skipRefetch, options }) {
         const runtime = this._requireScopeRuntime(scopeId);
         const cached = runtime.objectCache?.get(objectId);
         const oldParentId = cached?.wClass_Parent && Number.isInteger(cached?.twParentIx)
             ? formatObjectRef(cached.wClass_Parent, cached.twParentIx)
             : null;
-        const obj = await runtime.moveObject(objectId, newParentId, skipRefetch);
+        const obj = await runtime.moveObject(objectId, newParentId, options ?? skipRefetch);
         this._invalidateObjectIdsAcrossFabric(scopeId, [objectId, newParentId, oldParentId, obj?.parentId ?? null]);
         return this._enrichObjectWithScope(scopeId, obj);
     }
-    async bulkUpdate({ scopeId, operations }) {
-        const result = await this._requireScopeRuntime(scopeId).bulkUpdate(operations);
+    async bulkUpdate({ scopeId, operations, options }) {
+        const result = await this._requireScopeRuntime(scopeId).bulkUpdate(operations, options);
         const createdIds = Array.isArray(result?.createdIds) ? result.createdIds : [];
         this._invalidateObjectIdsAcrossFabric(scopeId, [...getBulkOperationInvalidationIds(operations), ...createdIds]);
         return result;
