@@ -195,8 +195,16 @@ export interface FabricObject {
   children: string[] | null;
   orbit?: Orbit | null;
   properties?: CelestialProperties | null;
-  /** Whether the mutation was confirmed via notification. Undefined for non-create operations. */
-  confirmed?: boolean;
+}
+
+export interface MutatedObject extends FabricObject {
+  /** Whether the mutation was confirmed via notification. False when confirmation was skipped (optimistic mode) or tolerated a timeout. */
+  confirmed: boolean;
+}
+
+export interface DeleteObjectResult {
+  /** Whether the deletion was confirmed via notification. False when confirmation was skipped (optimistic mode) or tolerated a timeout. */
+  confirmed: boolean;
 }
 
 export interface Scene {
@@ -317,6 +325,32 @@ export interface UpdateObjectParams {
   orbit?: Orbit;
   properties?: CelestialProperties;
   skipRefetch?: boolean;
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
+  /** When true, skip confirmation wait and return confirmed: false immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
+}
+
+export interface DeleteObjectOptions {
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
+  /** When true, skip confirmation wait and return immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
+}
+
+export interface MoveObjectOptions {
+  /** When true, skip refetching the moved object and return a shallow result. */
+  skipRefetch?: boolean;
+  /** When true, mutation confirmation timeouts resolve as unconfirmed instead of throwing. */
+  tolerateTimeout?: boolean;
+  /** Override mutation confirmation timeout in ms. Used by bulkUpdate to scale timeout with batch size. */
+  mutationTimeoutMs?: number;
+  /** When true, skip confirmation wait and return confirmed: false immediately. Used by optimistic bulk mode. */
+  skipConfirmation?: boolean;
 }
 
 export interface BulkOperation {

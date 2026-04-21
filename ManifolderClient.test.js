@@ -1380,6 +1380,7 @@ test('createObject confirmation matches inserted event when parent metadata is m
       timestamp: Date.now(),
     });
     assert.equal(matched, true);
+    return { confirmed: true };
   };
 
   const created = await client.createObject({ parentId: 'root', name: 'NoParentMetadata' });
@@ -1404,7 +1405,7 @@ test('createObject attaches cached parent model before sending action', async ()
     nResult: 0,
     aResultSet: [[{ twRMPObjectIx: 333 }]],
   });
-  client._confirmMutation = async () => {};
+  client._confirmMutation = async () => ({ confirmed: true });
 
   const created = await client.createObject({
     parentId: 'physical:10',
@@ -1444,7 +1445,7 @@ test('moveObject evicts moved object cache entry so later operations reload auth
     twObjectIx: 9,
   });
   client.sendAction = async () => ({ nResult: 0 });
-  client._confirmMutation = async () => {};
+  client._confirmMutation = async () => ({ confirmed: true });
 
   const moved = await client.moveObject(objectId, newParentId, true);
   assert.equal(moved.parentId, newParentId);
@@ -1478,10 +1479,12 @@ test('deleteObject confirmation matches deleted event when parent metadata is mi
       timestamp: Date.now(),
     });
     assert.equal(matched, true);
+    return { confirmed: true };
   };
 
-  await client.deleteObject(objectId);
+  const result = await client.deleteObject(objectId);
   assert.equal(matched, true);
+  assert.equal(result.confirmed, true);
 });
 
 test('latLonToWorldCoords converts known Earth coordinates', () => {
@@ -2050,4 +2053,194 @@ test('findEarthAttachmentParent backfills missing higher-level names from revers
   assert.equal(result.parent?.objectId, illinoisSpringfield.id);
   assert.equal(result.geocode.state, 'Illinois');
   assert.equal(result.geocode.country, 'United States');
+});
+
+// --- bulkUpdate feedback tests ------------------------------------------------
+//
+// These tests exercise SingleScopeClient.bulkUpdate directly (not via a stubbed
+// runtime.bulkUpdate) to verify option threading, result shape, and ordering.
+
+/**
+ * Build a SingleScopeClient with the connection/cache wired up so that
+ * bulkUpdate's pre-fetch phase is a no-op and the 4 mutation methods can be
+ * stubbed independently.
+ */
+function buildBulkRuntime({ mutations }) {
+  const runtime = new SingleScopeClient();
+  runtime.ensureConnected = async () => {};
+  runtime.openWithKnownType = async () => ({});
+  const seedCache = (id) => {
+    if (id && id !== 'root') runtime.objectCache.set(id, {});
+  };
+  runtime._seedCache = seedCache;
+  runtime.createObject = mutations.createObject;
+  runtime.updateObject = mutations.updateObject;
+  runtime.deleteObject = mutations.deleteObject;
+  runtime.moveObject = mutations.moveObject;
+  return runtime;
+}
+
+test('bulkUpdate optimistic mode skips confirmation and returns confirmed:false for all ops', async () => {
+  const captured = { create: null, update: null, delete: null, move: null };
+  const runtime = buildBulkRuntime({
+    mutations: {
+      createObject: async (params) => {
+        captured.create = params;
+        return { id: 'physical:900', confirmed: false };
+      },
+      updateObject: async (params) => {
+        captured.update = params;
+        return { id: params.objectId, confirmed: false };
+      },
+      deleteObject: async (objectId, options) => {
+        captured.delete = { objectId, options };
+        return { confirmed: false };
+      },
+      moveObject: async (objectId, newParentId, options) => {
+        captured.move = { objectId, newParentId, options };
+        return { id: objectId, confirmed: false };
+      },
+    },
+  });
+  ['physical:100', 'physical:200', 'physical:201', 'physical:202', 'physical:300', 'physical:301'].forEach(runtime._seedCache);
+
+  const result = await runtime.bulkUpdate(
+    [
+      { type: 'create', params: { parentId: 'physical:100', name: 'new' } },
+      { type: 'update', params: { objectId: 'physical:200', name: 'renamed' } },
+      { type: 'delete', params: { objectId: 'physical:201' } },
+      { type: 'move', params: { objectId: 'physical:202', newParentId: 'physical:300' } },
+    ],
+    { confirmMode: 'optimistic' }
+  );
+
+  assert.equal(result.success, 4);
+  assert.equal(result.failed, 0);
+  assert.equal(result.results.length, 4);
+  for (const entry of result.results) {
+    assert.equal(entry.status, 'ok');
+    assert.equal(entry.confirmed, false);
+  }
+
+  // Every mutation received skipConfirmation:true
+  assert.equal(captured.create.skipConfirmation, true);
+  assert.equal(captured.update.skipConfirmation, true);
+  assert.equal(captured.delete.options.skipConfirmation, true);
+  assert.equal(captured.move.options.skipConfirmation, true);
+  // And move carries skipRefetch:true
+  assert.equal(captured.move.options.skipRefetch, true);
+});
+
+test('bulkUpdate await mode does not tolerate timeouts (strict error propagation)', async () => {
+  let capturedCreate = null;
+  const runtime = buildBulkRuntime({
+    mutations: {
+      createObject: async (params) => {
+        capturedCreate = params;
+        const err = new Error('Timeout waiting for mutation notification: create object new');
+        err.code = 'MUTATION_TIMEOUT';
+        throw err;
+      },
+      updateObject: async () => ({ id: 'physical:x', confirmed: true }),
+      deleteObject: async () => ({ confirmed: true }),
+      moveObject: async () => ({ id: 'physical:x', confirmed: true }),
+    },
+  });
+  runtime._seedCache('physical:100');
+
+  const result = await runtime.bulkUpdate(
+    [{ type: 'create', params: { parentId: 'physical:100', name: 'new' } }],
+    // default options → confirmMode === 'await'
+  );
+
+  assert.equal(result.success, 0);
+  assert.equal(result.failed, 1);
+  assert.equal(result.results[0].status, 'error');
+  assert.match(result.results[0].message, /MUTATION_TIMEOUT|Timeout/);
+  // tolerateTimeout must be false in await mode so that timeouts surface as errors
+  assert.equal(capturedCreate.tolerateTimeout, false);
+  assert.equal(capturedCreate.skipConfirmation, false);
+});
+
+test('bulkUpdate preserves positional order of results[] under concurrent execution', async () => {
+  // Mutations resolve in reverse order by index to stress ordering. The slot
+  // that starts last completes first and vice-versa.
+  const resolveDelays = [50, 40, 30, 20, 10, 5, 15, 25, 35, 45];
+  const runtime = buildBulkRuntime({
+    mutations: {
+      createObject: async (params) => {
+        const idx = Number(params.name.split('-')[1]);
+        await new Promise(r => setTimeout(r, resolveDelays[idx]));
+        return { id: `physical:${1000 + idx}`, confirmed: true };
+      },
+      updateObject: async () => ({ id: 'physical:x', confirmed: true }),
+      deleteObject: async () => ({ confirmed: true }),
+      moveObject: async () => ({ id: 'physical:x', confirmed: true }),
+    },
+  });
+  runtime._seedCache('physical:42');
+
+  const operations = resolveDelays.map((_, idx) => ({
+    type: 'create',
+    params: { parentId: 'physical:42', name: `op-${idx}` },
+  }));
+
+  const result = await runtime.bulkUpdate(operations, { concurrency: 3 });
+
+  assert.equal(result.success, operations.length);
+  assert.equal(result.results.length, operations.length);
+  for (let idx = 0; idx < operations.length; idx++) {
+    assert.equal(result.results[idx].status, 'ok', `results[${idx}] should be ok`);
+    assert.equal(result.results[idx].id, `physical:${1000 + idx}`,
+      `results[${idx}] must match operations[${idx}] positionally`);
+  }
+});
+
+test('bulkUpdate threads scaled timeout and strict tolerateTimeout into all 4 verbs', async () => {
+  const captured = { create: null, update: null, delete: null, move: null };
+  const runtime = buildBulkRuntime({
+    mutations: {
+      createObject: async (params) => {
+        captured.create = params;
+        return { id: 'physical:900', confirmed: true };
+      },
+      updateObject: async (params) => {
+        captured.update = params;
+        return { id: params.objectId, confirmed: true };
+      },
+      deleteObject: async (objectId, options) => {
+        captured.delete = { objectId, options };
+        return { confirmed: true };
+      },
+      moveObject: async (objectId, newParentId, options) => {
+        captured.move = { objectId, newParentId, options };
+        return { id: objectId, confirmed: true };
+      },
+    },
+  });
+  ['physical:100', 'physical:200', 'physical:201', 'physical:202', 'physical:300'].forEach(runtime._seedCache);
+
+  await runtime.bulkUpdate(
+    [
+      { type: 'create', params: { parentId: 'physical:100', name: 'new' } },
+      { type: 'update', params: { objectId: 'physical:200', name: 'u' } },
+      { type: 'delete', params: { objectId: 'physical:201' } },
+      { type: 'move', params: { objectId: 'physical:202', newParentId: 'physical:300' } },
+    ]
+  );
+
+  const baseTimeout = runtime.promiseTimeoutMs;
+  const expectedTimeoutMin = baseTimeout + 500; // at least one wave bonus
+  for (const [verb, params] of [
+    ['create', captured.create],
+    ['update', captured.update],
+    ['delete', captured.delete.options],
+    ['move', captured.move.options],
+  ]) {
+    assert.equal(typeof params.mutationTimeoutMs, 'number', `${verb} must receive mutationTimeoutMs`);
+    assert.ok(params.mutationTimeoutMs >= expectedTimeoutMin,
+      `${verb} mutationTimeoutMs (${params.mutationTimeoutMs}) should be >= ${expectedTimeoutMin}`);
+    assert.equal(params.tolerateTimeout, false, `${verb} must not tolerate timeouts in await mode`);
+    assert.equal(params.skipConfirmation, false, `${verb} must wait for confirmation in await mode`);
+  }
 });
