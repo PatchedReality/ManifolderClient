@@ -1917,7 +1917,8 @@ MV.MVRP.Map.IO_RMROOT.apAction =
                                        pResource               : MV.MVRP.Map.Class.RMCOMMON_RESOURCE_IO.MAP,
                                        pTransform              : MV.MVRP.Map.Class.RMCOMMON_TRANSFORM_IO.MAP,
                                        pBound                  : MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.MAP,
-                                       pProperties             : MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_IO.MAP
+                                       pProperties             : MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_IO.MAP,
+                                       pCoord                  : MV.MVRP.Map.Class.DCOORD_IO.MAP
                                     },
                                     function (pRequest_Out, pRequest_In)
                                     {
@@ -1930,6 +1931,7 @@ MV.MVRP.Map.IO_RMROOT.apAction =
                                        MV.MVRP.Map.Class.RMCOMMON_TRANSFORM_IO.Convert   (pRequest_Out, pRequest_In);
                                        MV.MVRP.Map.Class.RMCOMMON_BOUND_IO.Convert       (pRequest_Out, pRequest_In);
                                        MV.MVRP.Map.Class.RMTOBJECT_PROPERTIES_IO.Convert (pRequest_Out, pRequest_In);
+                                       MV.MVRP.Map.Class.DCOORD_IO.Convert               (pRequest_Out, pRequest_In);
                                     }
                                  ),
 

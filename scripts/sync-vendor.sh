@@ -3,17 +3,22 @@
 # Sync MVMF vendor libraries from SceneAssembler and apply globalThis bridge lines.
 #
 # Usage: ./scripts/sync-vendor.sh [path-or-git-url]
-#        Default: https://github.com/MetaversalCorp/SceneAssembler.git
+#        Default: https://github.com/PatchedReality/SceneAssembler.git
 #
 # Accepts a local path or a git URL. Git URLs are shallow-cloned to a temp
 # directory and cleaned up automatically.
+#
+# The default source is the PatchedReality fork of SceneAssembler so we get
+# in-flight client-side protocol fixes (e.g. RMRoot RMTOBJECT_OPEN pCoord)
+# that have not yet landed in MetaversalCorp/SceneAssembler. Revert to the
+# upstream URL once those are merged upstream.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DST_MV="$PROJECT_DIR/vendor/mv"
-DEFAULT_REPO="https://github.com/MetaversalCorp/SceneAssembler.git"
+DEFAULT_REPO="https://github.com/PatchedReality/SceneAssembler.git"
 SRC="${1:-$DEFAULT_REPO}"
 CLEANUP=""
 

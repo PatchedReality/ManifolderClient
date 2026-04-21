@@ -1791,10 +1791,14 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 payload.pProperties.bYouth = 0;
                 payload.pProperties.bAdult = 0;
                 payload.pProperties.bAvatar = 0;
-                payload.pCoord.bCoord = 3;
-                payload.pCoord.dA = 0;
-                payload.pCoord.dB = 0;
-                payload.pCoord.dC = 0;
+                // pCoord is only in the action schema when parenting under RMCObject
+                // or RMTObject; the RMRoot -> RMTObject action schema omits it.
+                if (payload.pCoord) {
+                    payload.pCoord.bCoord = 3;
+                    payload.pCoord.dA = 0;
+                    payload.pCoord.dB = 0;
+                    payload.pCoord.dC = 0;
+                }
             }
             if (isCelestial) {
                 payload.pOrbit_Spin.tmPeriod = params.orbit?.period ?? 0;
