@@ -8,7 +8,7 @@ const { MV } = require ('@metaversalcorp/mvmf');
 require ('@metaversalcorp/mvsb');
 */
 
-MV.MVXP = MV.Library ('MVXP', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Cross Platform', '0.23.1');
+MV.MVXP = MV.Library ('MVXP', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Cross Platform', '0.24.0');
 
 MV.MVXP.Class.USER_BIRTHDATE = class extends MV.MVMF.Class.BASE
 {

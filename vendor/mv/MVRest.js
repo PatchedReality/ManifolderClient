@@ -6,7 +6,7 @@ import { MV } from '@metaversalcorp/mvmf'
 const { MV } = require ('@metaversalcorp/mvmf');
 */
 
-MV.MVRest = MV.Library ('MVRest', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Rest Service', '0.23.5');
+MV.MVRest = MV.Library ('MVRest', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Rest Service', '0.24.5');
 
 MV.MVRest.SERVICE = class extends MV.MVMF.SERVICE
 {
@@ -892,49 +892,49 @@ MV.MVRest.REST_OBJECT = class extends MV.MVMF.MEM.SOURCE
       this.pModel.Recovered ();
    }
 
-   Inserted (pChild, pChange)
+   Inserted (pObject, pChild, pChange)
+   {
+      if (pChild != null)
+      {
+         pChild.Map_Read (pChild.pModel);
+      }
+
+      this.pModel.Inserted (pObject.pModel, pChild ? pChild.pModel : null, pChange);
+   }
+
+   Deleting (pObject, pChild, pChange)
+   {
+      this.pModel.Deleting (pObject.pModel, pChild ? pChild.pModel : null, pChange);
+   }
+
+   Updating (pObject, pChild)
+   {
+      this.pModel.Updating (pObject.pModel, pChild ? pChild.pModel : null);
+   }
+
+   Updated (pObject, pChild)
    {
       if (pChild == null)
       {
-         this.Map_Read (this.pModel);
+         pObject.Map_Read (pObject.pModel);
       }
 
-      this.pModel.Inserted (pChild ? pChild.pModel : null, pChange);
+      this.pModel.Updated (pObject.pModel, pChild ? pChild.pModel : null);
    }
 
-   Deleting (pChild, pChange)
+   Changing (pObject, pChild, pChange)
    {
-      this.pModel.Deleting (pChild ? pChild.pModel : null, pChange);
+      this.pModel.Changing (pObject ? pObject.pModel : null, pChild ? pChild.pModel : null, pChange);
    }
 
-   Updating (pChild)
+   Changed (pObject, pChild, pChange)
    {
-      this.pModel.Updating (pChild ? pChild.pModel : null);
-   }
-
-   Updated (pChild)
-   {
-      if (pChild == null)
+      if (pObject != null)
       {
-         this.Map_Read (this.pModel);
+         pObject.Map_Read (pObject.pModel);
       }
 
-      this.pModel.Updated (pChild ? pChild.pModel : null);
-   }
-
-   Changing (pChild, pChange)
-   {
-      this.pModel.Changing (pChild ? pChild.pModel : null, pChange);
-   }
-
-   Changed  (pChild, pChange)
-   {
-
-      {
-         this.Map_Read (this.pModel);
-      }
-
-      this.pModel.Changed (pChild ? pChild.pModel : null, pChange);
+      this.pModel.Changed (pObject ? pObject.pModel : null, pChild ? pChild.pModel : null, pChange);
    }
 
    Attach ()

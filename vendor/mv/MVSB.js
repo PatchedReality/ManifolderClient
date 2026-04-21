@@ -6,7 +6,7 @@ import { MV } from '@metaversalcorp/mvmf'
 const { MV } = require ('@metaversalcorp/mvmf');
 */
 
-MV.MVSB = MV.Library ('MVSB', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Statabase Service', '0.23.4');
+MV.MVSB = MV.Library ('MVSB', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Statabase Service', '0.24.6');
 
 MV.MVSB.TIME = class
 {
@@ -4056,49 +4056,49 @@ MV.MVSB.SB_OBJECT = class extends MV.MVMF.MEM.SOURCE
       this.pModel.Recovered ();
    }
 
-   Inserted (pChild, pChange)
+   Inserted (pObject, pChild, pChange)
    {
       if (pChild == null)
       {
-         this.Map_Read (this.pModel);
+         pObject.Map_Read (pObject.pModel);
       }
 
-      this.pModel.Inserted (pChild ? pChild.pModel : null, pChange);
+      this.pModel.Inserted (pObject.pModel, pChild ? pChild.pModel : null, pChange);
    }
 
-   Deleting (pChild, pChange)
+   Deleting (pObject, pChild, pChange)
    {
-      this.pModel.Deleting (pChild ? pChild.pModel : null, pChange);
+      this.pModel.Deleting (pObject.pModel, pChild ? pChild.pModel : null, pChange);
    }
 
-   Updating (pChild)
+   Updating (pObject, pChild)
    {
-      this.pModel.Updating (pChild ? pChild.pModel : null);
+      this.pModel.Updating (pObject.pModel, pChild ? pChild.pModel : null);
    }
 
-   Updated (pChild)
+   Updated (pObject, pChild)
    {
       if (pChild == null)
       {
-         this.Map_Read (this.pModel);
+         pObject.Map_Read (pObject.pModel);
       }
 
-      this.pModel.Updated (pChild ? pChild.pModel : null);
+      this.pModel.Updated (pObject.pModel, pChild ? pChild.pModel : null);
    }
 
-   Changing (pChild, pChange)
+   Changing (pObject, pChild, pChange)
    {
-      this.pModel.Changing (pChild ? pChild.pModel : null, pChange);
+      this.pModel.Changing (pObject ? pObject.pModel : null, pChild ? pChild.pModel : null, pChange);
    }
 
-   Changed  (pChild, pChange)
+   Changed (pObject, pChild, pChange)
    {
-
+      if (pObject != null)
       {
-         this.Map_Read (this.pModel);
+         pObject.Map_Read (pObject.pModel);
       }
 
-      this.pModel.Changed (pChild ? pChild.pModel : null, pChange);
+      this.pModel.Changed (pObject ? pObject.pModel : null, pChild ? pChild.pModel : null, pChange);
    }
 
    Attach ()

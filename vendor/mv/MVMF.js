@@ -1,7 +1,4 @@
-/*
- * Modified by Patched Reality, Inc.
- * Change: Exported MV to globalThis for access by the Node.js module loader
- */
+
 const MV = new class
 {
    constructor ()
@@ -39,7 +36,7 @@ const MV = new class
 }
 ();
 
-MV.MVMF = MV.Library ('MVMF', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Model Foundation', '0.23.31');
+MV.MVMF = MV.Library ('MVMF', 'Copyright 2014-2024 Metaversal Corporation. All rights reserved.', 'Metaversal Model Foundation', '0.24.18');
 
 MV.MVMF.Const.BANK_NULL        = 0;
 MV.MVMF.Const.OBJECTIX_NULL    = 0;
@@ -1809,9 +1806,9 @@ MV.MVMF.CORE = class
 
    LnG_Open (sNamespace, sID_Service, sConnect, sSession)
    {
-      let pLnG = new MV.MVMF.LNG (sNamespace, sID_Service, sConnect, sSession);
+      let pLnG = new MV.MVMF.LNG ();
 
-      if (pLnG.pSession != null)
+      if (pLnG.Init (sNamespace, sID_Service, sConnect, sSession))
       {
          this.#cpLnG.Add (pLnG, pLnG);
       }
@@ -2574,15 +2571,26 @@ MV.MVMF.NOTIFICATION = class
    #Enum (pNotice)
    {
       let pListener, pEnum;
+      let bSend;
 
       if (pEnum = this.#cpListener.Enum_Begin ())
       {
          while ((pListener = this.#cpListener.Enum_Next (pEnum)) != null)
          {
-            if (pListener.bInit == false  &&  pNotice.sNotification == 'onReadyState')
-               pListener.bInit = true;
+            if (pNotice.sNotification == 'onReadyState')
+            {
+               bSend = true;
 
-            this.#Send (pListener, pNotice);
+               if (pListener.bInit == false)
+                  pListener.bInit = true;
+            }
+            else
+            {
+               bSend = (pListener.bNotifyOnReady == false || this.IsReady ());
+            }
+
+            if (bSend)
+               this.#Send (pListener, pNotice);
 
             this.#cpListener.Release ();
          }
@@ -2643,7 +2651,7 @@ MV.MVMF.NOTIFICATION = class
       pNotice.destructor ();
    };
 
-   Attach (pThis, bPropagate)
+   Attach (pThis, bPropagate, bNotifyOnReady)
    {
 
       let nResult = -1;
@@ -2655,7 +2663,7 @@ MV.MVMF.NOTIFICATION = class
          {
             if (pListener == null)
             {
-               pListener = new MV.MVMF.NOTIFICATION.LISTENER (this, pThis, bPropagate);
+               pListener = new MV.MVMF.NOTIFICATION.LISTENER (this, pThis, bPropagate, bNotifyOnReady);
 
                if (this.#cpListener.Add (pThis, pListener))
                {
@@ -2716,12 +2724,13 @@ MV.MVMF.NOTIFICATION.ICOMPARE = class extends MV.MVMF.COLLECTION.ICOMPARE
 
 MV.MVMF.NOTIFICATION.LISTENER = class
 {
-   constructor (pNotification, pThis, bPropagate)
+   constructor (pNotification, pThis, bPropagate, bNotifyOnReady)
    {
       this.pThis      = pThis;
       this.bPropagate = bPropagate ? true : false;
 
-      this.bInit      = false;
+      this.bNotifyOnReady = bNotifyOnReady ? true : false;
+      this.bInit        = false;
    }
 
    destructor ()
@@ -3261,9 +3270,9 @@ MV.MVMF.MODEL = class extends MV.MVMF.NOTIFICATION
       return bResult;
    }
 
-   Attach (pThis, bPropagate)
+   Attach (pThis, bPropagate, bNotifyOnReady)
    {
-      let nLength = super.Attach (pThis, bPropagate);
+      let nLength = super.Attach (pThis, bPropagate, bNotifyOnReady);
 
       if (nLength == 1)
          this.pSource.Attach ();
@@ -3354,12 +3363,13 @@ MV.MVMF.MEM = class
       this.#pParent_X =
       {
          pObjectHead : new MV.MVMF.MEM.SOURCE.OBJECTHEAD (),
-         Inserted    : function (pChild, pChange) {},
-         Deleting    : function (pChild, pChange) {},
-         Updating    : function (pChild         ) {},
-         Updated     : function (pChild         ) {},
-         Changing    : function (pChild, pChange) {},
-         Changed     : function (pChild, pChange) {}
+
+         Inserted    : function (pObject, pChild, pChange) {},
+         Deleting    : function (pObject, pChild, pChange) {},
+         Updating    : function (pObject, pChild         ) {},
+         Updated     : function (pObject, pChild         ) {},
+         Changing    : function (pObject, pChild, pChange) {},
+         Changed     : function (pObject, pChild, pChange) {}
       }
    }
 
@@ -3511,8 +3521,8 @@ MV.MVMF.MEM = class
                {
                   if (bChange != false)
                   {
-                     pParent.Updating (pObject);
-                     pObject.Updating (null);
+                     pParent.Updating (pParent, pObject);
+                     pObject.Updating (pObject, null);
                   }
 
                   wFlags = pObject.pObjectHead.wFlags;
@@ -3532,19 +3542,19 @@ MV.MVMF.MEM = class
 
                   if (bInsert != false)
                   {
-                     pObject.Inserted (null,    null);
-                     pParent.Inserted (pObject, null);
+                     pObject.Inserted (pObject, null,    null);
+                     pParent.Inserted (pParent, pObject, null);
                   }
                   else if (bChange == false)
                   {
 
-                     pParent.Inserted (pObject, null);
+                     pParent.Inserted (pParent, pObject, null);
                   }
 
                   if (bChange != false)
                   {
-                     pObject.Updated (null);
-                     pParent.Updated (pObject);
+                     pObject.Updated (pObject, null);
+                     pParent.Updated (pParent, pObject);
                   }
 
                   if (((wFlags ^ pObject.pObjectHead.wFlags) & this.eOBJECTHEAD.FLAG.SUBSCRIBE_FULL) != 0)
@@ -3594,15 +3604,16 @@ MV.MVMF.MEM = class
                   }
                   else pChild = null;
 
-                  pParent.Changing (pObject, pChange);
-                  pObject.Changing (pChild,  pChange);
-                  if (bChange != false  &&  pChild != null  &&  bClose == false)
-                     pChild.Changing (null,  pChange);
+                  if (bPartial != false)
+                     pParent.Changing (null, pObject, pChange);
+                  pObject.Changing (pObject, pChild, pChange);
+                  if (bChange != false  &&  pChild != null)
+                     pChild.Changing (pChild, null, pChange);
 
                   if (wClass_Child != MV.MVMF.Const.BANK_NULL  &&  bClose != false  &&  pChild != null)
                   {
-                     pObject.Deleting (pChild, pChange);
-                     pChild .Deleting (null,   pChange);
+                     pObject.Deleting (pObject, pChild, pChange);
+                     pChild .Deleting (pChild,  null,   pChange);
                   }
 
                   if (wClass_Child != MV.MVMF.Const.BANK_NULL  &&  bOpen != false)
@@ -3617,7 +3628,8 @@ MV.MVMF.MEM = class
                         {
                            pChild = pObjectBank_Child.Object_Open (wClass_Object, twObjectIx, wClass_Child, twChildIx);
                         }
-                        else bOpen = false;
+                        else if (pChild.pObjectHead.wClass_Parent != 0)
+                           bOpen = false;
 
                         if (pChild != null)
                         {
@@ -3646,22 +3658,30 @@ MV.MVMF.MEM = class
                            {
                               pChild = pObjectBank_Child.Object_Close (pChild);
                            }
+                           else
+                           {
+
+                              pChild.pObjectHead.wClass_Parent = 0;
+                              pChild.pObjectHead.twParentIx    = 0;
+                           }
                         }
                      }
                   }
 
                   if (wClass_Child != MV.MVMF.Const.BANK_NULL  &&  bOpen != false  &&  pChild != null)
                   {
-                     pChild .Inserted (null,   pChange);
-                     pObject.Inserted (pChild, pChange);
+                     pChild .Inserted (pChild,  null,   pChange);
+                     pObject.Inserted (pObject, pChild, pChange);
 
-                     pChild.Partial ();
+                     if ((pChild.pObjectHead.wFlags & this.eOBJECTHEAD.FLAG.SUBSCRIBE_FULL) == 0)
+                        pChild.Partial ();
                   }
 
-                  if (bChange != false  &&  pChild != null  &&  bClose == false)
-                     pChild.Changed (null,  pChange);
-                  pObject.Changed (pChild,  pChange);
-                  pParent.Changed (pObject, pChange);
+                  if (bChange != false  &&  pChild != null)
+                     pChild.Changed (pChild, null, pChange);
+                  pObject.Changed (pObject, pChild, pChange);
+                  if (bPartial != false)
+                     pParent.Changed (null, pObject, pChange);
                }
             }
          }
@@ -3678,8 +3698,8 @@ MV.MVMF.MEM = class
       {
          if ((pChild.pObjectHead.wFlags & this.eOBJECTHEAD.FLAG.SUBSCRIBE_FULL) == 0)
          {
-            pObject.Deleting (pChild, null);
-            pChild .Deleting (null,   null);
+            pObject.Deleting (pObject, pChild, null);
+            pChild .Deleting (pChild,  null,   null);
          }
 
          pChild.pObjectHead.wFlags &= ~this.eOBJECTHEAD.FLAG.SUBSCRIBE_PARTIAL;
@@ -3707,8 +3727,8 @@ MV.MVMF.MEM = class
 
          if ((pObject.pObjectHead.wFlags & this.eOBJECTHEAD.FLAG.SUBSCRIBE_PARTIAL) == 0)
          {
-            pParent.Deleting (pObject, null);
-            pObject.Deleting (null,    null);
+            pParent.Deleting (pParent, pObject, null);
+            pObject.Deleting (pObject, null,    null);
          }
 
          pObject.pObjectHead.wFlags &= ~this.eOBJECTHEAD.FLAG.SUBSCRIBE_FULL;
@@ -4514,16 +4534,17 @@ MV.MVMF.MEM.SOURCE = class extends MV.MVMF.SOURCE
    get wClass_Parent () { return this.#pObjectHead.wClass_Parent; }
    get wClass_Object () { return this.#pObjectHead.wClass_Object; }
 
-   Partial    (               ) {}
-   Full       (               ) {}
-   Recovering (               ) {}
-   Recovered  (               ) {}
-   Inserted   (pChild, pChange) {}
-   Deleting   (pChild, pChange) {}
-   Updating   (pChild         ) {}
-   Updated    (pChild         ) {}
-   Changing   (pChild, pChange) {}
-   Changed    (pChild, pChange) {}
+   Partial    () {}
+   Full       () {}
+   Recovering () {}
+   Recovered  () {}
+
+   Inserted   (pObject, pChild, pChange) {}
+   Deleting   (pObject, pChild, pChange) {}
+   Updating   (pObject, pChild         ) {}
+   Updated    (pObject, pChild         ) {}
+   Changing   (pObject, pChild, pChange) {}
+   Changed    (pObject, pChild, pChange) {}
 }
 
 MV.MVMF.MEM.SOURCE.REFERENCE = class extends MV.MVMF.SOURCE.REFERENCE
@@ -4586,12 +4607,12 @@ MV.MVMF.MEM.MODEL = class extends MV.MVMF.MODEL
    Recovering () {}
    Recovered  () {}
 
-   Inserted (pChild, pChange) {}
-   Deleting (pChild, pChange) {}
-   Updating (pChild         ) {}
-   Updated  (pChild         ) {}
-   Changing (pChild, pChange) {}
-   Changed  (pChild, pChange) {}
+   Inserted (pObject, pChild, pChange) {}
+   Deleting (pObject, pChild, pChange) {}
+   Updating (pObject, pChild         ) {}
+   Updated  (pObject, pChild         ) {}
+   Changing (pObject, pChild, pChange) {}
+   Changed  (pObject, pChild, pChange) {}
 }
 
 MV.MVMF.MEM.MODEL.FACTORY = class extends MV.MVMF.MODEL.FACTORY
@@ -4786,7 +4807,7 @@ MV.MVMF.MODEL_OBJECT = class extends MV.MVMF.MEM.MODEL
       this.ReadyState (this.eSTATE.RECOVERED);
    }
 
-   Inserted (pChild, pChange)
+   Inserted (pObject, pChild, pChange)
    {
       let cpChild;
 
@@ -4798,14 +4819,14 @@ MV.MVMF.MODEL_OBJECT = class extends MV.MVMF.MEM.MODEL
          }
       }
 
-      this.Emit ('onInserted', { pChild, pChange });
+      this.Emit ('onInserted', { pObject, pChild, pChange });
    }
 
-   Deleting (pChild, pChange)
+   Deleting (pObject, pChild, pChange)
    {
       let cpChild;
 
-      this.Emit ('onDeleting', { pChild, pChange });
+      this.Emit ('onDeleting', { pObject, pChild, pChange });
 
       if (pChild != null)
       {
@@ -4816,24 +4837,24 @@ MV.MVMF.MODEL_OBJECT = class extends MV.MVMF.MEM.MODEL
       }
    }
 
-   Updating (pChild)
+   Updating (pObject, pChild)
    {
-      this.Emit ('onUpdating', { pChild });
+      this.Emit ('onUpdating', { pObject, pChild });
    }
 
-   Updated (pChild)
+   Updated (pObject, pChild)
    {
-      this.Emit ('onUpdated', { pChild });
+      this.Emit ('onUpdated', { pObject, pChild });
    }
 
-   Changing (pChild, pChange)
+   Changing (pObject, pChild, pChange)
    {
-      this.Emit ('onChanging', { pChild, pChange });
+      this.Emit ('onChanging', { pObject, pChild, pChange });
    }
 
-   Changed  (pChild, pChange)
+   Changed  (pObject, pChild, pChange)
    {
-      this.Emit ('onChanged', { pChild, pChange });
+      this.Emit ('onChanged', { pObject, pChild, pChange });
    }
 }
 
@@ -4872,6 +4893,8 @@ MV.MVMF.SESSION_NULL = class extends MV.MVMF.MODEL_SESSION
    {
       this.pSource.Logout ();
    }
+
+   get twUserIx ()   { return 0; }
 
    IsLoggedOut ()
    {
@@ -4944,7 +4967,8 @@ MV.MVMF.SESSION_UIP = class extends MV.MVMF.MODEL_SESSION
 
    eSTATE = MV.MVMF.SESSION_UIP.eSTATE;
 
-   get pLogin () { return this.pSource.pLogin; }
+   get pLogin ()     { return this.pSource.pLogin; }
+   get twUserIx ()   { return 0; }
 
    Progress (pProgress)
    {
@@ -5237,6 +5261,8 @@ MV.MVMF.PLUGIN = class
                }
             }
          }
+
+         pReference.destructor ();
       }
 
       return bResult;
@@ -5557,9 +5583,14 @@ MV.MVMF.LNG = class extends MV.MVMF.NOTIFICATION
    #pSession;
    #sSession;
 
-   constructor (sNamespace, sID_Service, sConnect, sSession)
+   constructor ()
    {
       super ();
+   }
+
+   Init (sNamespace, sID_Service, sConnect, sSession)
+   {
+      let bResult = false;
 
       if (this.#pService = MV.MVMF.Core.Service_Open (sNamespace, sID_Service, sConnect))
       {
@@ -5571,12 +5602,16 @@ MV.MVMF.LNG = class extends MV.MVMF.NOTIFICATION
 
             if (this.#pSession = this.#pClient.Session_Open (true))
             {
+               bResult = true;
+
                this.#pSession.Attach (this, true);
 
                this.#sSession = sSession;
             }
          }
       }
+
+      return bResult;
    }
 
    SafeClose ()
@@ -5634,11 +5669,10 @@ MV.MVMF.LNG = class extends MV.MVMF.NOTIFICATION
       return super.destructor ();
    }
 
-   get pNamespace () { return this.#pService.pNamespace; }
+   get twUserIx ()   { return this.#pSession.twUserIx;   }
    get sNamespace () { return this.#pService.sNamespace; }
-   get pService   () { return this.#pService;            }
-   get pClient    () { return this.#pClient;             }
    get pSession   () { return this.#pSession;            }
+   get pClient ()    { return this.#pClient;             }
 
    #Login_Call ()
    {
@@ -5748,78 +5782,6 @@ MV.MVMF.LNG.ICOMPARE = class extends MV.MVMF.COLLECTION.ICOMPARE
    Compare (pThis, pLnG) { return (pThis == pLnG); }
 }
 
-MV.MVMF.MODEL_EX = class
-{
-   #m_pThis;
-   #m_pLnG;
-   #m_pModel;
-   #m_nReadyState;
-
-   constructor (pLnG, pThis, sID, twObjectIx, twChildIx, nReadyState)
-   {
-      this.#m_pLnG      = pLnG;
-      this.#m_pThis     = pThis;
-
-      this.#m_pModel       = pLnG.Model_Open (sID, '' + twObjectIx, twChildIx);
-      this.#m_nReadyState  = (nReadyState === undefined) ? this.#m_pModel.eSTATE.RECOVERED : nReadyState;
-      this.#m_pModel.Attach (this);
-   }
-
-   destructor ()
-   {
-      this.#m_pModel.Detach (this);
-      this.#m_pLnG.Model_Close (this.#m_pModel);
-
-      return null;
-   }
-
-   get pModel ()
-   {
-      return this.#m_pModel;
-   }
-
-   onInserted (pNotice)
-   {
-      this.#FwdNotice (pNotice, 'onInserted');
-   }
-
-   onUpdated (pNotice)
-   {
-      this.#FwdNotice (pNotice, 'onUpdated');
-   }
-
-   onChanged (pNotice)
-   {
-      this.#FwdNotice (pNotice, 'onChanged');
-   }
-
-   onDeleting (pNotice)
-   {
-      this.#FwdNotice (pNotice, 'onDeleting');
-   }
-
-   onReadyState (pNotice)
-   {
-      if (this.#m_pModel.ReadyState () >= this.#m_nReadyState)
-      {
-         this.#m_pThis.onReadyState (pNotice);
-      }
-   }
-
-   #FwdNotice (pNotice, sType)
-   {
-      if (this.#m_pModel.ReadyState () >= this.#m_nReadyState)
-      {
-         this.#m_pThis.onModelNotify (pNotice, sType);
-      }
-   }
-
-   IsReady ()
-   {
-      return (this.#m_pModel.ReadyState () >= this.#m_nReadyState);
-   }
-}
-
 MV.MVMF.Core        = new MV.MVMF.CORE ();
 
 MV.MVMF.Cookie      = new MV.MVMF.COOKIE      ();
@@ -5862,5 +5824,5 @@ export
 }
 */
 
-
 globalThis.MV = MV;
+

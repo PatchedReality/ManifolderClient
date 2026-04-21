@@ -12,7 +12,7 @@ require ('@metaversalcorp/mvio');
 require ('@metaversalcorp/mvrest');
 */
 
-MV.MVRP.Dev = MV.Library ('MVRP_Dev', 'Copyright 2023-2024 Metaversal Corporation. All rights reserved.', 'Metaversal RP1 Dev', '0.23.19');
+MV.MVRP.Dev = MV.Library ('MVRP_Dev', 'Copyright 2023-2024 Metaversal Corporation. All rights reserved.', 'Metaversal RP1 Dev', '0.24.5');
 
 MV.MVRP.Dev.Class.RDCOMPANY_NAME = class extends MV.MVMF.Class.BASE
 {
@@ -1471,8 +1471,9 @@ MV.MVRP.Dev.SB_RDENVIRONMENT.apAction['IPADDRESS_OPEN'] = new MV.MVSB.SERVICE.CL
    ({
       twRDEnvironmentIx                : MV.MVSB.MAP.FIELD.TWORD8,
       abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-      dwIPAddressIz                    : MV.MVSB.MAP.FIELD.DWORD,
+      twIPAddressIz                    : MV.MVSB.MAP.FIELD.TWORD8,
       dwIPAddress_WAN                  : MV.MVSB.MAP.FIELD.DWORD,
+      abReserved_B                     : MV.MVSB.MAP.FIELD.PAD (4),
    })
 );
 
@@ -1483,8 +1484,7 @@ MV.MVRP.Dev.SB_RDENVIRONMENT.apAction['IPADDRESS_CLOSE'] = new MV.MVSB.SERVICE.C
    ({
       twRDEnvironmentIx                : MV.MVSB.MAP.FIELD.TWORD8,
       abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-      dwIPAddressIz                    : MV.MVSB.MAP.FIELD.DWORD,
-      abReserved_B                     : MV.MVSB.MAP.FIELD.PAD (4),
+      twIPAddressIz                    : MV.MVSB.MAP.FIELD.TWORD8
    })
 );
 
@@ -1495,8 +1495,7 @@ MV.MVRP.Dev.SB_RDENVIRONMENT.apAction['IPADDRESS_PAUSE'] = new MV.MVSB.SERVICE.C
    ({
       twRDEnvironmentIx                : MV.MVSB.MAP.FIELD.TWORD8,
       abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-      dwIPAddressIz                    : MV.MVSB.MAP.FIELD.DWORD,
-      abReserved_B                     : MV.MVSB.MAP.FIELD.PAD (4),
+      twIPAddressIz                    : MV.MVSB.MAP.FIELD.TWORD8
    })
 );
 
@@ -1507,8 +1506,7 @@ MV.MVRP.Dev.SB_RDENVIRONMENT.apAction['IPADDRESS_CONTINUE'] = new MV.MVSB.SERVIC
    ({
       twRDEnvironmentIx                : MV.MVSB.MAP.FIELD.TWORD8,
       abReserved_A                     : MV.MVSB.MAP.FIELD.PAD (8),
-      dwIPAddressIz                    : MV.MVSB.MAP.FIELD.DWORD,
-      abReserved_B                     : MV.MVSB.MAP.FIELD.PAD (4),
+      twIPAddressIz                    : MV.MVSB.MAP.FIELD.TWORD8
    })
 );
 
@@ -2403,7 +2401,7 @@ MV.MVRP.Dev.RDENVIRONMENT_IPADDRESS = class extends MV.MVMF.MODEL_OBJECT
       super (pReference, pSource);
 
       this.twRDEnvironmentIx = pReference.twObjectIx;
-      this.dwIPAddressIz     = pReference.twChildIx;
+      this.twIPAddressIz     = pReference.twChildIx;
    }
 }
 
@@ -2413,9 +2411,9 @@ MV.MVRP.Dev.RDENVIRONMENT_IPADDRESS.FACTORY = class extends MV.MVMF.MODEL_OBJECT
    Reference (asArgs)
    {
       let twRDEnvironmentIx = Number (asArgs[0]);
-      let dwIPAddressIz     = Number (asArgs[1]);
+      let twIPAddressIz     = Number (asArgs[1]);
 
-      return new MV.MVRP.Dev.RDENVIRONMENT_IPADDRESS.IREFERENCE (this.sID, twRDEnvironmentIx, dwIPAddressIz);
+      return new MV.MVRP.Dev.RDENVIRONMENT_IPADDRESS.IREFERENCE (this.sID, twRDEnvironmentIx, twIPAddressIz);
    }
 }
 
@@ -2583,7 +2581,7 @@ MV.MVRP.Dev.RDFABRIC.IREFERENCE = class extends MV.MVMF.MODEL_OBJECT.IREFERENCE
    }
 }
 
-MV.MVRP.Dev.Package.DEV = class extends MV.MVMF.PLUGIN.PACKAGE
+MV.MVRP.Dev.Package.DEV_SB = class extends MV.MVMF.PLUGIN.PACKAGE
 {
    static factory ()
    {
@@ -2594,8 +2592,11 @@ MV.MVRP.Dev.Package.DEV = class extends MV.MVMF.PLUGIN.PACKAGE
 
          {
             aService  : [
+
                         ],
             aModel    : [
+                           'MVRP_Dev/Session_RP1',
+
                            'MVRP_Dev/RDRoot',
                            'MVRP_Dev/RDUser',
                            'MVRP_Dev/RDUser_RDCompany',
@@ -2609,6 +2610,7 @@ MV.MVRP.Dev.Package.DEV = class extends MV.MVMF.PLUGIN.PACKAGE
                            'MVRP_Dev/RDFabric',
                         ],
             aSource   : [
+
                            'MVRP_Dev/MVSB:RDRoot',
                            'MVRP_Dev/MVSB:RDUser',
                            'MVRP_Dev/MVSB:RDUser_RDCompany',
@@ -2627,21 +2629,107 @@ MV.MVRP.Dev.Package.DEV = class extends MV.MVMF.PLUGIN.PACKAGE
 
 }
 
-MV.MVRP.Dev.Package.DEV.FACTORY = class extends MV.MVMF.PLUGIN.PACKAGE.FACTORY
+MV.MVRP.Dev.Package.DEV_SB.FACTORY = class extends MV.MVMF.PLUGIN.PACKAGE.FACTORY
 {
 
    Reference (sNamespace)
    {
-      return new MV.MVRP.Dev.Package.DEV.IREFERENCE (this.sID, sNamespace, this.pConfig);
+      return new MV.MVRP.Dev.Package.DEV_SB.IREFERENCE (this.sID, sNamespace, this.pConfig);
    }
 }
 
-MV.MVRP.Dev.Package.DEV.IREFERENCE = class extends MV.MVMF.PLUGIN.PACKAGE.IREFERENCE
+MV.MVRP.Dev.Package.DEV_SB.IREFERENCE = class extends MV.MVMF.PLUGIN.PACKAGE.IREFERENCE
 {
 
    Create (pParam)
    {
-      return new MV.MVRP.Dev.Package.DEV (this, pParam);
+      return new MV.MVRP.Dev.Package.DEV_SB (this, pParam);
+   }
+}
+
+MV.MVRP.Dev.Package.DEV_IO = class extends MV.MVMF.PLUGIN.PACKAGE
+{
+   static factory ()
+   {
+      return new this.FACTORY
+      (
+         'MVIO',
+         'Dev',
+
+         {
+            aService  : [
+                           'MVIO/MVIO'
+                        ],
+            aModel    : [
+                           'MVRP_Dev/Session_RP1'
+                        ],
+            aSource   : [
+                           'MVRP_Dev/MVIO:Session_RP1'
+                        ]
+         }
+      );
+   }
+
+}
+
+MV.MVRP.Dev.Package.DEV_IO.FACTORY = class extends MV.MVMF.PLUGIN.PACKAGE.FACTORY
+{
+
+   Reference (sNamespace)
+   {
+      return new MV.MVRP.Dev.Package.DEV_IO.IREFERENCE (this.sID, sNamespace, this.pConfig);
+   }
+}
+
+MV.MVRP.Dev.Package.DEV_IO.IREFERENCE = class extends MV.MVMF.PLUGIN.PACKAGE.IREFERENCE
+{
+
+   Create (pParam)
+   {
+      return new MV.MVRP.Dev.Package.DEV_IO (this, pParam);
+   }
+}
+
+MV.MVRP.Dev.Package.DEV_REST = class extends MV.MVMF.PLUGIN.PACKAGE
+{
+   static factory ()
+   {
+      return new this.FACTORY
+      (
+         'MVRest',
+         'Dev',
+
+         {
+            aService  : [
+                           'MVRest/MVRest'
+                        ],
+            aModel    : [
+                           'MVRP_Dev/Session_RP1',
+                        ],
+            aSource   : [
+                           'MVRP_Dev/MVRest:Session_RP1',
+                        ]
+         }
+      );
+   }
+
+}
+
+MV.MVRP.Dev.Package.DEV_REST.FACTORY = class extends MV.MVMF.PLUGIN.PACKAGE.FACTORY
+{
+
+   Reference (sNamespace)
+   {
+      return new MV.MVRP.Dev.Package.DEV_REST.IREFERENCE (this.sID, sNamespace, this.pConfig);
+   }
+}
+
+MV.MVRP.Dev.Package.DEV_REST.IREFERENCE = class extends MV.MVMF.PLUGIN.PACKAGE.IREFERENCE
+{
+
+   Create (pParam)
+   {
+      return new MV.MVRP.Dev.Package.DEV_REST (this, pParam);
    }
 }
 
@@ -2688,7 +2776,9 @@ MV.MVRP.Dev.Install = function (pCore, pPlugin)
 
       this.apFactory_Package =
       [
-         MV.MVRP.Dev.Package.DEV               .factory ()
+         MV.MVRP.Dev.Package.DEV_SB            .factory (),
+         MV.MVRP.Dev.Package.DEV_IO            .factory (),
+         MV.MVRP.Dev.Package.DEV_REST          .factory ()
       ];
 
       pPlugin.Factory_Models   (this.apFactory_Model);
