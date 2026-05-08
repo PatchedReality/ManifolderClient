@@ -267,6 +267,7 @@ export interface EarthAttachmentParentResult {
   attachment: {
     latitude: number;
     longitude: number;
+    /** The campus's adjusted radius from planet center (= R - depth_sector). */
     radius: number;
     boundX: number;
     boundY: number;
@@ -275,9 +276,14 @@ export interface EarthAttachmentParentResult {
     depth: number;
   };
   planet: {
+    /**
+     * The actual planet radius. For Earth attachments, EARTH_RADIUS_METERS = 6_371_000.
+     * Sector depth below surface = `radius - subsurface.dC`.
+     */
     radius: number;
     matrix: GeoMatrix;
     matrixInverse: GeoMatrix;
+    /** Sector's adjusted radius — radial distance from planet center to the matrix's local Y=0. */
     subsurface: { tnGeometry: number; dA: number; dB: number; dC: number };
   };
   geocode: {

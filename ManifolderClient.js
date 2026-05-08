@@ -2885,7 +2885,9 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             planet: (() => {
                 const matrices = this.buildGeoMatrix(geometry.latitude, geometry.longitude, geometry.radius);
                 return {
-                    radius: geometry.radius,
+                    // Earth-specific function: planet.radius is always EARTH_RADIUS_METERS.
+                    // The sector's depth below surface is `radius - subsurface.dC`.
+                    radius: EARTH_RADIUS_METERS,
                     matrix: matrices.forward,
                     matrixInverse: matrices.inverse,
                     subsurface: { tnGeometry: 3, dA: geometry.latitude, dB: geometry.longitude, dC: geometry.radius },
