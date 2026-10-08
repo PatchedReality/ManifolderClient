@@ -774,15 +774,27 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         const key = this.getObjectKey(pObject);
         debugLog(`[waitForReady] registering key=${key} sID=${pObject.sID} wClass=${pObject.wClass_Object} twObj=${pObject.twObjectIx}`);
         return new Promise((resolve, reject) => {
+            let waiters = this.pendingReady.get(key);
+            if (!waiters) {
+                waiters = new Set();
+                this.pendingReady.set(key, waiters);
+            }
+            const remove = () => {
+                waiters.delete(waiter);
+                if (waiters.size === 0 && this.pendingReady.get(key) === waiters) {
+                    this.pendingReady.delete(key);
+                }
+            };
             const timeoutId = setTimeout(() => {
-                this.pendingReady.delete(key);
+                remove();
                 debugLog(`[waitForReady] TIMEOUT key=${key}`);
                 reject(new Error(`Timeout waiting for object to be ready (key: ${key}, state: ${pObject.ReadyState?.()})`));
             }, timeoutMs);
-            this.pendingReady.set(key, {
-                resolve: () => { clearTimeout(timeoutId); resolve(); },
-                reject: (err) => { clearTimeout(timeoutId); reject(err); }
-            });
+            const waiter = {
+                resolve: () => { clearTimeout(timeoutId); remove(); resolve(); },
+                reject: (err) => { clearTimeout(timeoutId); remove(); reject(err); }
+            };
+            waiters.add(waiter);
         });
     }
     onReadyState(pNotice) {
@@ -802,11 +814,11 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             if (pending) {
                 if (isReady) {
                     this.pendingReady.delete(key);
-                    pending.resolve();
+                    for (const waiter of pending) waiter.resolve();
                 }
                 else if (state === pObject.eSTATE?.ERROR) {
                     this.pendingReady.delete(key);
-                    pending.reject(new Error('Object failed to load'));
+                    for (const waiter of pending) waiter.reject(new Error('Object failed to load'));
                 }
             }
             if (isReady && this.attachedObjects.has(pObject)) {
@@ -1205,7 +1217,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
         this.loggedIn = false;
         // Reject all pending object-ready promises
         for (const [, pending] of this.pendingReady) {
-            pending.reject(new Error('Connection lost'));
+            for (const waiter of pending) waiter.reject(new Error('Connection lost'));
         }
         this.pendingReady.clear();
         for (const wait of this.pendingMutationWaits) {
@@ -1502,7 +1514,7 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
             this.connectReject = null;
             // Reject all pending object-ready promises
             for (const [key, pending] of this.pendingReady) {
-                pending.reject(new Error('Disconnected'));
+                for (const waiter of pending) waiter.reject(new Error('Disconnected'));
             }
             this.pendingReady.clear();
             for (const wait of this.pendingMutationWaits) {

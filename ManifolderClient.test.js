@@ -52,6 +52,46 @@ const TEST_CLASS_IDS = Object.freeze({
   RMPObject: 73,
 });
 
+for (const outcome of ['ready', 'error', 'disconnect', 'close']) {
+  test(`same-object readiness notifies all four waiters on ${outcome}`, async () => {
+    const client = new SingleScopeClient();
+    let state = 3;
+    const object = { IsReady: () => state === 4, ReadyState: () => state, eSTATE: { ERROR: -1 } };
+    client.getObjectKey = () => '72:14';
+    client.handleReadyState = () => {};
+    const results = Promise.allSettled(Array.from({ length: 4 }, () => client.waitForReady(object, 100)));
+    if (outcome === 'disconnect') client.handleUnexpectedDisconnect();
+    else if (outcome === 'close') await client.disconnect();
+    else {
+      state = outcome === 'ready' ? 4 : -1;
+      client.onReadyState({ pCreator: object });
+    }
+    for (const result of await results) {
+      if (outcome === 'ready') assert.equal(result.status, 'fulfilled');
+      else {
+        assert.equal(result.status, 'rejected');
+        assert.match(result.reason.message, /Object failed to load|Connection lost|Disconnected/);
+      }
+    }
+    assert.equal(client.pendingReady.size, 0);
+  });
+}
+
+test('a timed-out readiness waiter does not remove a later waiter for the same object', async () => {
+  const client = new SingleScopeClient();
+  let ready = false;
+  const object = { IsReady: () => ready, ReadyState: () => 3, eSTATE: { ERROR: -1 } };
+  client.getObjectKey = () => '72:14';
+  client.handleReadyState = () => {};
+  const first = assert.rejects(client.waitForReady(object, 5), /Timeout waiting/);
+  const second = client.waitForReady(object, 100);
+  await first;
+  ready = true;
+  client.onReadyState({ pCreator: object });
+  await second;
+  assert.equal(client.pendingReady.size, 0);
+});
+
 test('scope utilities normalize URLs deterministically', async () => {
   const normalizedA = normalizeUrl('HTTPS://EXAMPLE.com:443//fabric//world.msf/');
   const normalizedB = normalizeUrl('https://example.com/fabric/world.msf');
