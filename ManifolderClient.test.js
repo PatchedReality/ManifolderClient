@@ -5,6 +5,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 
 class MockNotification {
@@ -2378,4 +2379,74 @@ test('_confirmMutation without tolerateTimeout rejects with code MUTATION_TIMEOU
       return true;
     },
   );
+});
+
+for (const [xhr, kind, retryable] of [
+  [{ status: 503, statusText: 'Service Unavailable' }, 'http', true],
+  [{ status: 401, statusText: 'Unauthorized' }, 'http', false],
+  [{ status: 404, statusText: 'Not a JSON File' }, 'config_invalid', false],
+  [{ status: 0, statusText: 'EAI_AGAIN' }, 'transport', true],
+  [{ status: 0, statusText: 'CERT_HAS_EXPIRED' }, 'transport', false],
+]) {
+  test(`fabric config failure preserves sanitized ${kind}/${xhr.statusText}`, () => {
+    const client = new SingleScopeClient();
+    client.fabricUrl = 'https://user:secret@example.com/fabric/?token=secret';
+    client.pFabric = { IsReady: () => false, ReadyState: () => -1, eSTATE: { ERROR: -1 }, XHRError: xhr };
+    let failure;
+    client.connectReject = error => { failure = error; };
+    client.handleReadyState({ pCreator: client.pFabric });
+    assert.equal(failure.code, 'FABRIC_CONFIG_FAILED');
+    assert.equal(failure.details.kind, kind);
+    assert.equal(failure.details.retryable, retryable);
+    assert.equal(failure.details.httpStatus, xhr.status === 404 && kind === 'config_invalid' ? 200 : xhr.status);
+    assert.equal(JSON.stringify(failure).includes('secret'), false);
+    assert.equal(failure.message.includes('secret'), false);
+  });
+}
+
+test('real XHR and vendor path preserves HTTP, invalid config, and DNS diagnostics', () => {
+  for (const [scenario, expected] of [
+    ['503', { kind: 'http', httpStatus: 503, transportCode: 'UNKNOWN', retryable: true }],
+    ['invalid', { kind: 'config_invalid', httpStatus: 200, transportCode: 'UNKNOWN', retryable: false }],
+    ['dns', { kind: 'transport', httpStatus: 0, transportCode: 'EAI_AGAIN', retryable: true }],
+  ]) {
+    const code = `globalThis.fetch = async () => {
+      if (${JSON.stringify(scenario)} === 'dns') throw new TypeError('fetch failed', {cause:{code:'EAI_AGAIN'}});
+      return new Response('invalid config secret', {status: ${scenario === '503' ? 503 : 200}});
+    };
+    await import('./node/mv-loader.js');
+    const {ManifolderClient} = await import('./ManifolderClient.js');
+    try { await new ManifolderClient().connectRoot({fabricUrl:'https://fixture.invalid/fabric/?token=secret',adminKey:''}); }
+    catch (error) { process.stdout.write(JSON.stringify({code:error.code,details:error.details})); }
+    process.exit(0);`;
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+      cwd: new URL('.', import.meta.url), encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+    assert.deepEqual(JSON.parse(child.stdout), { code: 'FABRIC_CONFIG_FAILED', details: expected });
+  }
+});
+
+test('failed root connections release bootstrap requirements before another attempt', async () => {
+  const core = globalThis.MV.MVMF.Core;
+  const handles = new Set();
+  globalThis.MV.MVMF.Core = {
+    Require: () => { const handle = {}; handles.add(handle); return handle; },
+    Release: handle => { handles.delete(handle); },
+  };
+  try {
+    const client = new ManifolderClient();
+    const failure = Object.assign(new Error('config unavailable'), { code: 'FABRIC_CONFIG_FAILED' });
+    client._createScopeRuntime = () => {
+      const runtime = new SingleScopeClient();
+      runtime.connect = async () => { runtime._acquireBootstrapRequirements(); throw failure; };
+      return runtime;
+    };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await assert.rejects(client.connectRoot({ fabricUrl: 'https://example.com/fabric/' }), error => error === failure);
+      assert.equal(handles.size, 0);
+      assert.equal(client.scopeRuntimes.size, 0);
+      assert.equal(client.rootConnectInFlight.size, 0);
+    }
+  } finally { globalThis.MV.MVMF.Core = core; }
 });
