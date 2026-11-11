@@ -1134,7 +1134,26 @@ export class SingleScopeClient extends MV.MVMF.NOTIFICATION {
                 this.attachTo(this.pLnG);
             }
             else if (this.pFabric.ReadyState() === this.pFabric.eSTATE.ERROR) {
-                const err = new Error('Failed to load fabric config from ' + this.fabricUrl);
+                // MVRP's legacy "Not a JSON File" marker covers parsing AND
+                // config initialization. It is not an HTTP 404.
+                const xhr = this.pFabric.XHRError ?? {};
+                const invalid = xhr.statusText === 'Not a JSON File';
+                const httpStatus = invalid ? 200 : (Number.isInteger(xhr.status) ? xhr.status : 0);
+                const kind = invalid ? 'config_invalid' : httpStatus > 0 ? 'http' : 'transport';
+                const codes = new Set(['EAI_AGAIN', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED',
+                    'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+                    'UND_ERR_BODY_TIMEOUT', 'TimeoutError', 'CERT_HAS_EXPIRED',
+                    'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE']);
+                const transportCode = codes.has(xhr.statusText) ? xhr.statusText : 'UNKNOWN';
+                const retryable = kind === 'http' ? [408, 429, 502, 503, 504].includes(httpStatus)
+                    : kind === 'transport' && ['EAI_AGAIN', 'ECONNRESET', 'ECONNREFUSED',
+                        'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+                        'UND_ERR_BODY_TIMEOUT', 'TimeoutError'].includes(transportCode);
+                // Never include the URL, response body, or arbitrary exception text:
+                // configs may carry credentials in all three.
+                const err = new Error(`Failed to load fabric config (${kind}, status=${httpStatus}, transport=${transportCode})`);
+                err.code = 'FABRIC_CONFIG_FAILED';
+                err.details = { kind, httpStatus, transportCode, retryable };
                 this.connectReject?.(err);
                 this._emit('error', err);
                 this.connectResolve = null;
@@ -3538,7 +3557,14 @@ export class ManifolderClient {
                 };
             }
             const runtime = this._createScopeRuntime();
-            await runtime.connect(fabricUrl, { adminKey, timeoutMs }, timeoutMs);
+            try {
+                await runtime.connect(fabricUrl, { adminKey, timeoutMs }, timeoutMs);
+            }
+            catch (error) {
+                // A failed runtime is never registered, so closeScope cannot release it.
+                await Promise.resolve(runtime.disconnect()).catch(() => { });
+                throw error;
+            }
             this._wireScopeRuntime(scopeId, runtime);
             this.scopeRuntimes.set(scopeId, runtime);
             const registered = this._registerScope({

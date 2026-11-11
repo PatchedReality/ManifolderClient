@@ -66,7 +66,14 @@ globalThis.XMLHttpRequest = class XMLHttpRequest {
       })
       .catch((error) => {
         this.status = 0;
-        this.statusText = error.message;
+        // Preserve a bounded transport classification through MVRP.XHRError.
+        // Do not retain messages, URLs, or response bodies in diagnostics.
+        const code = error?.cause?.code ?? error?.code ?? error?.name;
+        const allowed = new Set(['EAI_AGAIN', 'ENOTFOUND', 'ECONNRESET', 'ECONNREFUSED',
+          'ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT',
+          'UND_ERR_BODY_TIMEOUT', 'TimeoutError', 'CERT_HAS_EXPIRED',
+          'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE']);
+        this.statusText = allowed.has(code) ? code : 'UNKNOWN';
         this.readyState = 4;
         if (this._onreadystatechange) {
           this._onreadystatechange();
